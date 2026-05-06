@@ -428,15 +428,81 @@ function getOrInitDay(iso) {
 
 let saveTimer = null;
 const dirty = new Set();
+
+const cloudState = {
+  pending: 0,            // in-flight cloud pushes
+  lastSyncAt: null,      // ms epoch of last successful cloud push or pull
+  hasError: false,       // last cloud op errored
+};
+
+function fmtClock(d) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// localPhase: 'idle' | 'saving' | 'error'
+let localPhase = "idle";
 function setSaveStatus(s) {
+  localPhase = s === "saving" ? "saving" : s === "error" ? "error" : "idle";
+  refreshSaveIndicator();
+}
+
+function refreshSaveIndicator() {
   const el = document.getElementById("save-indicator");
   if (!el) return;
-  el.classList.remove("saving", "error");
-  if (s === "saving") el.classList.add("saving");
-  else if (s === "error") el.classList.add("error");
+  el.classList.remove("saving", "error", "uploading", "ok-local", "ok-cloud");
   const lbl = el.querySelector(".lbl");
-  if (lbl) lbl.textContent = s === "saving" ? "saving…" : s === "error" ? "error" : "saved";
+
+  if (localPhase === "error") {
+    el.classList.add("error");
+    if (lbl) lbl.textContent = "save error";
+    el.title = "Save failed — your changes may not have been written.";
+    return;
+  }
+  if (localPhase === "saving") {
+    el.classList.add("saving");
+    if (lbl) lbl.textContent = "saving…";
+    el.title = "Saving to this device…";
+    return;
+  }
+  // local idle
+  const signedIn = !!state.userId;
+  if (cloudState.hasError) {
+    el.classList.add("error");
+    if (lbl) lbl.textContent = "cloud error";
+    el.title = "Local data is safe; cloud upload failed. Will retry on next change.";
+    return;
+  }
+  if (signedIn) {
+    if (cloudState.pending > 0) {
+      el.classList.add("uploading");
+      if (lbl) lbl.textContent = "uploading…";
+      el.title = `${cloudState.pending} change(s) uploading to cloud`;
+      return;
+    }
+    if (cloudState.lastSyncAt) {
+      el.classList.add("ok-cloud");
+      const d = new Date(cloudState.lastSyncAt);
+      if (lbl) lbl.textContent = `synced ${fmtClock(d)}`;
+      el.title = `Last cloud sync: ${d.toLocaleString()}\nSafe to close — your data is in Supabase.`;
+      return;
+    }
+    el.classList.add("ok-cloud");
+    if (lbl) lbl.textContent = "signed in";
+    el.title = "Cloud connected — no changes yet this session.";
+    return;
+  }
+  // not signed in
+  el.classList.add("ok-local");
+  if (lbl) lbl.textContent = "local only";
+  el.title = "Saved on this device only. Sign in to back up to the cloud.";
 }
+
+// Tick the clock label every minute so "synced 14:23" stays current as time passes.
+setInterval(() => {
+  if (localPhase === "idle" && cloudState.pending === 0 && !cloudState.hasError) {
+    refreshSaveIndicator();
+  }
+}, 30_000);
 function scheduleSave(iso) {
   dirty.add(iso);
   setSaveStatus("saving");
@@ -466,7 +532,22 @@ function scheduleSave(iso) {
     if (state.userId) {
       for (const id of isos) {
         const d = state.daysByIso.get(id);
-        if (d) pushDay(state.userId, d).catch((e) => console.warn("push", id, e));
+        if (!d) continue;
+        cloudState.pending++;
+        refreshSaveIndicator();
+        pushDay(state.userId, d)
+          .then(() => {
+            cloudState.lastSyncAt = Date.now();
+            cloudState.hasError = false;
+          })
+          .catch((e) => {
+            cloudState.hasError = true;
+            console.warn("push", id, e);
+          })
+          .finally(() => {
+            cloudState.pending--;
+            refreshSaveIndicator();
+          });
       }
     }
   }, 250);
@@ -692,11 +773,16 @@ async function reconcileWithCloud() {
     if (localUpdates.length) await bulkPut(state.db, "days", localUpdates);
     if (toPush.length) await pushDays(state.userId, toPush);
     for (const u of localUpdates) styleRowRuns(u.date);
+    cloudState.lastSyncAt = Date.now();
+    cloudState.hasError = false;
     setSyncIndicator(`synced · ${remote.length + toPush.length} days`);
     setTimeout(() => setSyncIndicator(""), 2500);
+    refreshSaveIndicator();
   } catch (e) {
     console.error("reconcile failed", e);
+    cloudState.hasError = true;
     setSyncIndicator("sync error");
+    refreshSaveIndicator();
   }
 }
 
@@ -712,20 +798,26 @@ async function initCloud() {
     state.userId = session.user.id;
     state.userEmail = session.user.email;
     updateAccountUI();
+    refreshSaveIndicator();
     await reconcileWithCloud();
   } else {
     updateAccountUI();
+    refreshSaveIndicator();
   }
   onAuthChange(async (s) => {
     if (s) {
       state.userId = s.user.id;
       state.userEmail = s.user.email;
       updateAccountUI();
+      refreshSaveIndicator();
       await reconcileWithCloud();
     } else {
       state.userId = null;
       state.userEmail = null;
+      cloudState.lastSyncAt = null;
+      cloudState.hasError = false;
       updateAccountUI();
+      refreshSaveIndicator();
     }
   });
 
@@ -782,6 +874,7 @@ async function boot() {
   wireDateNav();
   wireSync();
   wireStats();
+  refreshSaveIndicator();
   await initCloud();
 }
 
