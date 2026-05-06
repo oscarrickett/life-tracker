@@ -15,13 +15,13 @@ import {
 // under colorsByYear if we ever want them back).
 const PALETTE = {
   1:  "#3a3e47",  // Sleep — dark cool gray
-  2:  "#8a5985",  // Work — dusty mauve-purple
+  2:  "#a06b9c",  // Work — dusty mauve-purple
   3:  "#a06a32",  // Hobby — toned amber
   4:  "#6f8170",  // Sorting House — deep sage
   5:  "#467a7b",  // Party / Clare — muted teal
   6:  "#5a7a45",  // Social — deeper apple green
   7:  "#475c8c",  // Exercise — steel blue
-  8:  "#8f4a32",  // Foxo — deep rust (productive)
+  8:  "#a85a3f",  // Foxo — deep rust (productive)
   9:  "#624a32",  // Gaming — deep brown
   10: "#8a4a7e",  // Family Time — muted plum
   11: "#2e3a52",  // Travel — deep slate-navy
@@ -31,7 +31,7 @@ const PALETTE = {
   15: "#928464",  // TV — dusty sand
   16: "#5e826c",  // Health — deep jade
   17: "#8d772f",  // Swedish — dusty gold
-  18: "#a36278",  // Elin — deep rose (fun)
+  18: "#b8748b",  // Elin — deep rose (fun)
   19: "#535b56",
   20: "#535b56",
 };
