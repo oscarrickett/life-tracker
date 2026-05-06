@@ -251,6 +251,7 @@ input, textarea { font: inherit; color: inherit; }
     no-repeat right 10px center;
   border: 1px solid var(--border);
   color: var(--text);
+  color-scheme: dark;
   font: inherit;
   font-family: "Archivo Black", sans-serif;
   font-size: 14px;
@@ -485,16 +486,21 @@ dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rg
   font-size: 12px;
 }
 .stats-controls select {
-  background: var(--surface-2);
+  background-color: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px 28px 5px 10px;
   color: var(--text);
+  color-scheme: dark;
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%237c8780' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
   background-position: right 10px center;
+}
+select option {
+  background: #14181a;
+  color: var(--text);
 }
 .stats-pie {
   display: flex;
