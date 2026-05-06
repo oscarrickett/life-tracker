@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="theme-color" content="#0a0d0c" />
-    <title>Oscar — Life Tracker</title>
+    <title>OSCAR — Life Tracker</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
@@ -16,7 +16,7 @@
   <body>
     <header class="topbar">
       <h1 class="brand">
-        <span class="word">Oscar</span>
+        <span class="word">OSCAR</span>
         <span class="dot"></span>
         <span class="tagline">Life Tracker</span>
       </h1>
@@ -74,8 +74,9 @@
             <p class="muted" id="signin-status"></p>
           </div>
           <div id="signed-in-pane" hidden>
-            <p class="muted">Signed in as <strong id="account-email"></strong>. Changes auto-sync. <span id="sync-state" class="muted"></span></p>
+            <p class="muted">Signed in as <strong id="account-email"></strong>. Changes auto-sync. The app also pulls fresh data from cloud every minute and whenever you switch back to this tab. <span id="sync-state" class="muted"></span></p>
             <div class="row">
+              <button type="button" id="btn-refresh">Refresh from cloud</button>
               <button type="button" id="btn-signout">Sign out</button>
             </div>
           </div>

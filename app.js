@@ -1017,6 +1017,81 @@ async function reconcileWithCloud() {
   }
 }
 
+// Pull-only refresh: fetch latest from cloud and overlay any rows that
+// were edited elsewhere since our last sync. Local rows that are newer
+// than remote (i.e. unpushed edits) are left untouched.
+let refreshInflight = false;
+async function refreshFromCloud(silent = true) {
+  if (!state.userId || refreshInflight) return 0;
+  refreshInflight = true;
+  if (!silent) setSyncIndicator("checking…");
+  try {
+    const remote = await pullDays();
+    const updates = [];
+    for (const r of remote) {
+      const local = state.daysByIso.get(r.date);
+      const localT = Date.parse(local?.updated_at || 0) || 0;
+      const remoteT = Date.parse(r.updated_at) || 0;
+      if (remoteT > localT) {
+        const merged = {
+          date: r.date,
+          day: dowShort(r.date),
+          hours: r.hours,
+          notes: r.notes,
+          updated_at: r.updated_at,
+        };
+        state.daysByIso.set(r.date, merged);
+        updates.push(merged);
+      }
+    }
+    if (updates.length) {
+      await bulkPut(state.db, "days", updates);
+      for (const u of updates) {
+        styleRowRuns(u.date);
+        const input = state.rowEls.get(u.date)?.querySelector('input[data-notes="1"]');
+        if (input && input.value !== (u.notes || "")) input.value = u.notes || "";
+      }
+    }
+    cloudState.lastSyncAt = Date.now();
+    cloudState.hasError = false;
+    refreshSaveIndicator();
+    if (!silent) {
+      setSyncIndicator(updates.length ? `pulled ${updates.length} update(s)` : "up to date");
+      setTimeout(() => setSyncIndicator(""), 2500);
+    }
+    return updates.length;
+  } catch (e) {
+    console.warn("refresh failed", e);
+    cloudState.hasError = true;
+    if (!silent) setSyncIndicator("refresh error");
+    refreshSaveIndicator();
+    return -1;
+  } finally {
+    refreshInflight = false;
+  }
+}
+
+let bgRefreshTimer = null;
+function startBackgroundRefresh() {
+  stopBackgroundRefresh();
+  bgRefreshTimer = setInterval(() => {
+    if (document.visibilityState === "visible" && state.userId) {
+      refreshFromCloud(true);
+    }
+  }, 60_000);
+}
+function stopBackgroundRefresh() {
+  if (bgRefreshTimer) { clearInterval(bgRefreshTimer); bgRefreshTimer = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.userId) {
+    refreshFromCloud(true);
+  }
+});
+window.addEventListener("focus", () => {
+  if (state.userId) refreshFromCloud(true);
+});
+
 async function initCloud() {
   if (!cloudConfigured) {
     const note = document.getElementById("cloud-note");
@@ -1031,6 +1106,7 @@ async function initCloud() {
     updateAccountUI();
     refreshSaveIndicator();
     await reconcileWithCloud();
+    startBackgroundRefresh();
   } else {
     updateAccountUI();
     refreshSaveIndicator();
@@ -1042,11 +1118,13 @@ async function initCloud() {
       updateAccountUI();
       refreshSaveIndicator();
       await reconcileWithCloud();
+      startBackgroundRefresh();
     } else {
       state.userId = null;
       state.userEmail = null;
       cloudState.lastSyncAt = null;
       cloudState.hasError = false;
+      stopBackgroundRefresh();
       updateAccountUI();
       refreshSaveIndicator();
     }
@@ -1068,6 +1146,9 @@ async function initCloud() {
   });
   document.getElementById("btn-signout")?.addEventListener("click", async () => {
     await signOut();
+  });
+  document.getElementById("btn-refresh")?.addEventListener("click", async () => {
+    await refreshFromCloud(false);
   });
 }
 
