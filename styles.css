@@ -514,8 +514,20 @@ dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rg
       "years"
       "palette";
   }
+  .topbar { gap: 8px; padding: 0 10px; overflow-x: auto; }
+  .topbar .brand .tagline { display: none; }
+  .topbar .brand .word { font-size: 18px; }
   .palette { border-left: none; border-top: 1px solid var(--border); max-height: 40vh; }
-  .actions .btn:not(#btn-stats) { display: none; }
+  .active-cat { min-width: 0; padding: 5px 8px; }
+  .active-cat .label { display: none; }
+  .active-cat.has-cat .label { display: inline; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .save-indicator .lbl { display: none; }
+  .actions { gap: 6px; }
+  .actions .btn { padding: 6px 10px; }
   .fab { right: 16px; bottom: calc(40vh + 12px); }
   .cell { font-size: 10px; }
+}
+@media (max-width: 420px) {
+  .topbar .brand { display: none; }
+  .datebar .btn { display: none; } /* fall back to the FAB for "Today" */
 }
