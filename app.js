@@ -128,8 +128,9 @@ async function putDay(db, day) {
 }
 
 // ---------- seed ----------
-// Always (re)apply categories/colors from seed.json so palette tweaks land
-// without wiping the user's data. Days are only seeded the first time.
+// Loads category names + per-year overrides from seed.json. Day data is
+// NOT seeded into IndexedDB — historical hours live per-user in Supabase.
+// Visitors who aren't signed in see an empty grid with the palette ready.
 async function maybeSeed(db) {
   let seed;
   try {
@@ -140,8 +141,6 @@ async function maybeSeed(db) {
     console.warn("seed fetch failed:", e);
     return false;
   }
-  // We keep seed.colors / seed.colorsByYear in meta for reference, but the
-  // unified PALETTE above is what actually drives the UI.
   const cats = Object.entries(seed.categories || {}).map(([id, name]) => ({
     id: Number(id),
     name,
@@ -150,12 +149,6 @@ async function maybeSeed(db) {
   if (cats.length) await bulkPut(db, "categories", cats);
   await setMeta(db, "categoriesByYear", seed.categoriesByYear || {});
   await setMeta(db, "colorsByYear", seed.colorsByYear || {});
-
-  if (!(await getMeta(db, "seeded"))) {
-    if (seed.days?.length) await bulkPut(db, "days", seed.days);
-    await setMeta(db, "seeded", new Date().toISOString());
-    return true;
-  }
   return false;
 }
 
