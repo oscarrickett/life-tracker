@@ -37,10 +37,10 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
-export async function pullDays() {
-  const { data, error } = await supabase
-    .from("days")
-    .select("date, hours, notes, updated_at");
+export async function pullDays(sinceIso) {
+  let q = supabase.from("days").select("date, hours, notes, updated_at");
+  if (sinceIso) q = q.gt("updated_at", sinceIso);
+  const { data, error } = await q;
   if (error) throw error;
   return data || [];
 }

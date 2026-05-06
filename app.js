@@ -441,6 +441,7 @@ const cloudState = {
   pending: 0,            // in-flight cloud pushes
   lastSyncAt: null,      // ms epoch of last successful cloud push or pull
   hasError: false,       // last cloud op errored
+  maxUpdatedAt: null,    // ISO of max updated_at seen — drives delta pulls
 };
 
 function fmtClock(d) {
@@ -547,6 +548,9 @@ function scheduleSave(iso) {
           .then(() => {
             cloudState.lastSyncAt = Date.now();
             cloudState.hasError = false;
+            if (d.updated_at && (!cloudState.maxUpdatedAt || d.updated_at > cloudState.maxUpdatedAt)) {
+              cloudState.maxUpdatedAt = d.updated_at;
+            }
           })
           .catch((e) => {
             cloudState.hasError = true;
@@ -962,6 +966,11 @@ async function reconcileWithCloud() {
   setSyncIndicator("syncing…");
   try {
     const remote = await pullDays();
+    for (const r of remote) {
+      if (!cloudState.maxUpdatedAt || r.updated_at > cloudState.maxUpdatedAt) {
+        cloudState.maxUpdatedAt = r.updated_at;
+      }
+    }
     const remoteByDate = new Map(remote.map((r) => [r.date, r]));
     const localUpdates = [];
     const toPush = [];
@@ -1026,9 +1035,13 @@ async function refreshFromCloud(silent = true) {
   refreshInflight = true;
   if (!silent) setSyncIndicator("checking…");
   try {
-    const remote = await pullDays();
+    // Delta query: only rows updated after our last pull. Saves bandwidth.
+    const remote = await pullDays(cloudState.maxUpdatedAt || undefined);
     const updates = [];
     for (const r of remote) {
+      if (!cloudState.maxUpdatedAt || r.updated_at > cloudState.maxUpdatedAt) {
+        cloudState.maxUpdatedAt = r.updated_at;
+      }
       const local = state.daysByIso.get(r.date);
       const localT = Date.parse(local?.updated_at || 0) || 0;
       const remoteT = Date.parse(r.updated_at) || 0;
