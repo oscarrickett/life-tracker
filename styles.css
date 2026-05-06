@@ -314,7 +314,7 @@ input, textarea { font: inherit; color: inherit; }
   align-items: center;
   justify-content: center;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
   transition: filter 0.08s, box-shadow 0.08s;
 }
@@ -471,7 +471,47 @@ dialog .text-input {
   outline: none;
 }
 dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,200,150,0.18); }
-/* ---- stats dialog ---- */
+/* ---- stats dialog: full-screen ---- */
+#stats-dialog {
+  max-width: 100vw;
+  width: 100vw;
+  max-height: 100vh;
+  height: 100vh;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  padding: 26px clamp(16px, 4vw, 48px);
+  inset: 0;
+}
+#stats-dialog form.stats {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+#stats-dialog #stats-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+#stats-dialog menu { margin-top: 16px; }
+.stats-overview {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin: 6px 0 18px;
+  align-items: start;
+}
+@media (min-width: 760px) {
+  .stats-overview {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 32px;
+  }
+}
+.stats-overview-col { min-width: 0; }
+.stats-overview-col--pie { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .stats-controls {
   display: flex;
   gap: 10px;
@@ -551,8 +591,6 @@ select option {
   list-style: none;
   padding: 0;
   margin: 6px 0 0;
-  max-height: 50vh;
-  overflow-y: auto;
 }
 .stats-row {
   display: grid;
@@ -637,7 +675,7 @@ select option {
   .actions { gap: 6px; }
   .actions .btn { padding: 6px 10px; }
   .fab { right: 16px; bottom: calc(40vh + 12px); }
-  .cell { font-size: 10px; }
+  .cell { font-size: 8px; }
 }
 @media (max-width: 420px) {
   .topbar .brand { display: none; }

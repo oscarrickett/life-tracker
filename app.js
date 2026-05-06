@@ -24,14 +24,14 @@ const PALETTE = {
   8:  "#a85a3f",  // Foxo — deep rust (productive)
   9:  "#624a32",  // Gaming — deep brown
   10: "#8a4a7e",  // Family Time — muted plum
-  11: "#2e3a52",  // Travel — deep slate-navy
+  11: "#181b22",  // Travel — near-black
   12: "#456530",  // Cooking — deep forest
   13: "#8d7c44",  // Waste Time — dusty olive
   14: "#7c5272",  // Holiday — dusky mauve
   15: "#928464",  // TV — dusty sand
   16: "#5e826c",  // Health — deep jade
   17: "#8d772f",  // Swedish — dusty gold
-  18: "#b8748b",  // Elin — deep rose (fun)
+  18: "#4a7bc8",  // Elin — clear blue
   19: "#535b56",
   20: "#535b56",
 };
@@ -839,11 +839,11 @@ function renderStats() {
     return { value: n, color: cat?.color || "#666", label: cat?.name || `Cat ${id}` };
   });
   const pieWrap = el("div", { class: "stats-pie" });
-  pieWrap.append(renderPie(segments, 220));
-  body.append(pieWrap);
+  pieWrap.append(renderPie(segments, 280));
 
   // Highlights box (derived per-day / per-week metrics).
   const highlights = buildHighlights(totals, dayCount);
+  const highlightsCol = el("div", { class: "stats-overview-col" });
   if (highlights.length) {
     const hlList = el("ul", { class: "stats-hl-list" });
     for (const h of highlights) {
@@ -853,16 +853,19 @@ function renderStats() {
         el("span", { class: "stats-hl-value" }, h.value),
       ));
     }
-    body.append(
+    highlightsCol.append(
       el("h3", { class: "stats-section-title" }, "Highlights"),
       el("div", { class: "stats-highlights" }, hlList),
     );
   }
   const yp = yearProgress(yearFilter);
+  const pieCol = el("div", { class: "stats-overview-col stats-overview-col--pie" }, pieWrap);
   if (yp) {
-    body.append(el("p", { class: "muted stats-year-progress" },
+    pieCol.append(el("p", { class: "muted stats-year-progress" },
       `${yp.year} so far · ${yp.dayOfYear} days gone · ${yp.hoursLeft.toLocaleString()} hours left`));
   }
+
+  body.append(el("div", { class: "stats-overview" }, pieCol, highlightsCol));
 
   body.append(el("h3", { class: "stats-section-title" }, "All categories"));
   const list = el("ul", { class: "stats-list" });
