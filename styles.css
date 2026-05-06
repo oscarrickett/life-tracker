@@ -97,6 +97,14 @@ input, textarea { font: inherit; color: inherit; }
   color: transparent;
   animation: titleShimmer 7s ease-in-out infinite;
   filter: drop-shadow(0 2px 12px rgba(0,200,150,0.25));
+  user-select: none;
+}
+body.demo-mode .brand .word {
+  background: linear-gradient(115deg, #ff6b9d 0%, #ff9f4d 50%, #ffd27a 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 2px 12px rgba(255,107,157,0.35));
 }
 @keyframes titleShimmer {
   0%, 100% { background-position: 0% 50%; }

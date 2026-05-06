@@ -157,6 +157,122 @@ async function maybeSeed(db) {
   return false;
 }
 
+// ---------- demo mode ----------
+// Click the "OSCAR" word in the header to swap in synthetic data for
+// showing the app to people without exposing real life. Demo edits are
+// in-memory only — scheduleSave / cloud sync are gated by demoActive so
+// nothing leaks into IndexedDB or Supabase.
+const DEMO_LS_KEY = "lt.demoMode";
+let demoActive = false;
+let realDaysSnapshot = null;
+
+function demoSeed(iso) {
+  let h = 2166136261;
+  for (let i = 0; i < iso.length; i++) {
+    h ^= iso.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function demoRand(seed, salt) {
+  const x = Math.sin(seed + salt * 9973) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function generateDemoDays() {
+  const map = new Map();
+  const today = todayISO();
+  const todayD = isoToDate(today);
+  const startY = 2023;
+  const endY = todayD.getFullYear();
+  const WEEKDAY_EVE = [15, 7, 12, 9, 6, 3, 16];
+  const WEEKEND = [3, 7, 6, 9, 15, 12, 16, 4, 10];
+
+  for (let y = startY; y <= endY; y++) {
+    const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const days = isLeap ? 366 : 365;
+    const start = new Date(y, 0, 1);
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      if (d > todayD) break;
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const dow = d.getDay();
+      const isWknd = dow === 0 || dow === 6;
+      const seed = demoSeed(iso);
+      const hours = new Array(24).fill(null);
+
+      const sleepStart = isWknd
+        ? 23 + Math.floor(demoRand(seed, 1) * 2)   // 23–24
+        : 22 + Math.floor(demoRand(seed, 2) * 2);  // 22–23
+      const sleepEnd = isWknd
+        ? 8 + Math.floor(demoRand(seed, 3) * 3)    // 8–10
+        : 7 + Math.floor(demoRand(seed, 4) * 2);   // 7–8
+      for (let h = 0; h < 24; h++) {
+        const isSleep = h >= sleepStart || h < sleepEnd;
+        if (isSleep) hours[h] = 1;
+      }
+
+      if (!isWknd) {
+        const workStart = 9;
+        const workEnd = 17 + Math.floor(demoRand(seed, 5) * 2);
+        for (let h = workStart; h < workEnd; h++) hours[h] = 2;
+        if (demoRand(seed, 6) > 0.3) hours[12] = 12;
+        // Morning exercise sometimes
+        if (demoRand(seed, 7) > 0.7) hours[Math.max(sleepEnd, 7)] = 7;
+        // Evening
+        let cur = workEnd;
+        while (cur < sleepStart) {
+          const cat = WEEKDAY_EVE[Math.floor(demoRand(seed, cur + 100) * WEEKDAY_EVE.length)];
+          const len = 1 + Math.floor(demoRand(seed, cur + 200) * 3);
+          for (let h = cur; h < Math.min(cur + len, sleepStart); h++) hours[h] = cat;
+          cur += len;
+        }
+      } else {
+        let cur = sleepEnd;
+        while (cur < sleepStart) {
+          const cat = WEEKEND[Math.floor(demoRand(seed, cur + 300) * WEEKEND.length)];
+          const len = 1 + Math.floor(demoRand(seed, cur + 400) * 4);
+          for (let h = cur; h < Math.min(cur + len, sleepStart); h++) hours[h] = cat;
+          cur += len;
+        }
+      }
+
+      map.set(iso, { date: iso, day: dowShort(iso), hours, notes: "" });
+    }
+  }
+  return map;
+}
+
+function setDemoMode(on, { persist = true } = {}) {
+  if (on === demoActive) return;
+  demoActive = on;
+  if (persist) localStorage.setItem(DEMO_LS_KEY, on ? "1" : "0");
+  document.body.classList.toggle("demo-mode", on);
+  document.title = on ? "DEMO — Life Tracker" : "OSCAR — Life Tracker";
+  const word = document.querySelector(".brand .word");
+  if (word) word.textContent = on ? "DEMO" : "OSCAR";
+
+  if (on) {
+    realDaysSnapshot = state.daysByIso;
+    state.daysByIso = generateDemoDays();
+  } else {
+    state.daysByIso = realDaysSnapshot || new Map();
+    realDaysSnapshot = null;
+  }
+  renderYears();
+  scrollToIso(todayISO());
+  if (!on && state.userId) refreshFromCloud(true);
+}
+
+function wireDemoToggle() {
+  const word = document.querySelector(".brand .word");
+  if (!word) return;
+  word.style.cursor = "pointer";
+  word.title = "Click to toggle demo mode";
+  word.addEventListener("click", () => setDemoMode(!demoActive));
+}
+
 // ---------- date helpers ----------
 function todayISO() {
   const d = new Date();
@@ -513,6 +629,7 @@ setInterval(() => {
   }
 }, 30_000);
 function scheduleSave(iso) {
+  if (demoActive) return;
   dirty.add(iso);
   setSaveStatus("saving");
   clearTimeout(saveTimer);
@@ -962,7 +1079,7 @@ function updateAccountUI() {
 }
 
 async function reconcileWithCloud() {
-  if (!state.userId) return;
+  if (!state.userId || demoActive) return;
   setSyncIndicator("syncing…");
   try {
     const remote = await pullDays();
@@ -1031,7 +1148,7 @@ async function reconcileWithCloud() {
 // than remote (i.e. unpushed edits) are left untouched.
 let refreshInflight = false;
 async function refreshFromCloud(silent = true) {
-  if (!state.userId || refreshInflight) return 0;
+  if (!state.userId || refreshInflight || demoActive) return 0;
   refreshInflight = true;
   if (!silent) setSyncIndicator("checking…");
   try {
@@ -1199,6 +1316,10 @@ async function boot() {
   wireDateNav();
   wireSync();
   wireStats();
+  wireDemoToggle();
+  if (localStorage.getItem(DEMO_LS_KEY) === "1") {
+    setDemoMode(true, { persist: false });
+  }
   refreshSaveIndicator();
   await initCloud();
 }
