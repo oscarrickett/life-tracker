@@ -675,38 +675,145 @@ function wireSync() {
   });
 }
 
+function computeStats(yearFilter) {
+  const totals = new Map();
+  let totalHours = 0;
+  let dayCount = 0;
+  for (const d of state.daysByIso.values()) {
+    if (yearFilter !== "all" && !d.date.startsWith(yearFilter)) continue;
+    let any = false;
+    for (const id of d.hours || []) {
+      if (id == null) continue;
+      totals.set(id, (totals.get(id) || 0) + 1);
+      totalHours++;
+      any = true;
+    }
+    if (any) dayCount++;
+  }
+  return { totals, totalHours, dayCount };
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs = {}) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+
+function renderPie(segments, size = 220) {
+  const r = size / 2 - 4;
+  const cx = size / 2, cy = size / 2;
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${size} ${size}`,
+    width: String(size),
+    height: String(size),
+  });
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (total === 0) {
+    svg.append(svgEl("circle", { cx, cy, r, fill: "rgba(255,255,255,0.05)" }));
+    return svg;
+  }
+  // Single-segment case: full circle.
+  if (segments.length === 1) {
+    const c = svgEl("circle", { cx, cy, r, fill: segments[0].color });
+    const t = svgEl("title");
+    t.textContent = `${segments[0].label} — 100%`;
+    c.appendChild(t);
+    svg.appendChild(c);
+    return svg;
+  }
+  let angle = -Math.PI / 2; // start at 12 o'clock
+  for (const seg of segments) {
+    const slice = (seg.value / total) * Math.PI * 2;
+    const end = angle + slice;
+    const x1 = cx + r * Math.cos(angle);
+    const y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    const largeArc = slice > Math.PI ? 1 : 0;
+    const path = svgEl("path", {
+      d: `M ${cx},${cy} L ${x1.toFixed(2)},${y1.toFixed(2)} A ${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z`,
+      fill: seg.color,
+      stroke: "rgba(0,0,0,0.35)",
+      "stroke-width": "0.75",
+    });
+    const t = svgEl("title");
+    const pct = ((seg.value / total) * 100).toFixed(1);
+    t.textContent = `${seg.label} — ${seg.value.toLocaleString()} h (${pct}%)`;
+    path.appendChild(t);
+    svg.appendChild(path);
+    angle = end;
+  }
+  return svg;
+}
+
+function populateStatsYears(select) {
+  select.replaceChildren();
+  const years = new Set();
+  for (const iso of state.daysByIso.keys()) years.add(iso.slice(0, 4));
+  const sorted = [...years].sort((a, b) => Number(b) - Number(a));
+  select.append(el("option", { value: "all" }, "All time"));
+  for (const y of sorted) select.append(el("option", { value: y }, y));
+  // default to current year if present, else all
+  const cy = todayISO().slice(0, 4);
+  select.value = years.has(cy) ? cy : "all";
+}
+
+function renderStats() {
+  const select = document.getElementById("stats-year");
+  const yearFilter = select?.value || "all";
+  const body = document.getElementById("stats-body");
+  body.replaceChildren();
+  const { totals, totalHours, dayCount } = computeStats(yearFilter);
+  const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+
+  const period = yearFilter === "all" ? "all time" : yearFilter;
+  body.append(
+    el("p", { class: "muted" },
+      `${dayCount.toLocaleString()} days · ${totalHours.toLocaleString()} hours tracked · ${period}`),
+  );
+
+  if (totalHours === 0) {
+    body.append(el("p", { class: "muted" }, "No tracked hours in this period."));
+    return;
+  }
+
+  const segments = sorted.map(([id, n]) => {
+    const cat = state.catById.get(id);
+    return { value: n, color: cat?.color || "#666", label: cat?.name || `Cat ${id}` };
+  });
+  const pieWrap = el("div", { class: "stats-pie" });
+  pieWrap.append(renderPie(segments, 220));
+  body.append(pieWrap);
+
+  const list = el("ul", { class: "stats-list" });
+  for (const [id, n] of sorted) {
+    const cat = state.catById.get(id);
+    if (!cat) continue;
+    const pct = (n / totalHours) * 100;
+    const pctText = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
+    list.append(el("li", { class: "stats-row" },
+      el("span", { class: "stats-swatch", style: `background:${gradientFor(cat.color)}` }),
+      el("span", { class: "stats-name" }, cat.name),
+      el("span", { class: "stats-bar-wrap" },
+        el("span", { class: "stats-bar", style: `width:${pct}%; background:${cat.color}` }),
+      ),
+      el("span", { class: "stats-num" }, `${n.toLocaleString()} h`),
+      el("span", { class: "stats-pct muted" }, `${pctText}%`),
+    ));
+  }
+  body.append(list);
+}
+
 function wireStats() {
+  const dlg = document.getElementById("stats-dialog");
+  const select = document.getElementById("stats-year");
   document.getElementById("btn-stats").addEventListener("click", () => {
-    const dlg = document.getElementById("stats-dialog");
-    const body = document.getElementById("stats-body");
-    body.replaceChildren();
-    const totals = new Map();
-    let totalHours = 0;
-    for (const d of state.daysByIso.values()) {
-      for (const id of d.hours || []) {
-        if (id == null) continue;
-        totals.set(id, (totals.get(id) || 0) + 1);
-        totalHours++;
-      }
-    }
-    const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-    const list = el("ul", { style: "list-style:none;padding:0;margin:0;" });
-    for (const [id, n] of sorted) {
-      const cat = state.catById.get(id);
-      if (!cat) continue;
-      const pct = ((n / totalHours) * 100).toFixed(1);
-      list.append(el("li", { style: "display:flex;align-items:center;gap:8px;padding:3px 0;" },
-        el("span", { style: `width:14px;height:14px;border-radius:3px;background:${gradientFor(cat.color)};display:inline-block;` }),
-        el("span", { style: "flex:1" }, cat.name),
-        el("span", { class: "muted" }, `${n.toLocaleString()} h · ${pct}%`),
-      ));
-    }
-    body.append(
-      el("p", { class: "muted" }, `${state.daysByIso.size} days, ${totalHours.toLocaleString()} hours tracked.`),
-      list,
-    );
+    populateStatsYears(select);
+    renderStats();
     dlg.showModal();
   });
+  select?.addEventListener("change", renderStats);
 }
 
 // ---------- cloud sync ----------

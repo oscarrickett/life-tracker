@@ -470,6 +470,78 @@ dialog .text-input {
   outline: none;
 }
 dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,200,150,0.18); }
+/* ---- stats dialog ---- */
+.stats-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.stats-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+.stats-controls select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 28px 5px 10px;
+  color: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%237c8780' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.stats-pie {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 14px;
+}
+.stats-pie svg {
+  filter: drop-shadow(0 6px 22px rgba(0,0,0,0.45));
+  border-radius: 50%;
+}
+.stats-pie svg path { transition: filter 0.15s, opacity 0.15s; }
+.stats-pie svg:hover path { opacity: 0.55; }
+.stats-pie svg:hover path:hover { opacity: 1; filter: brightness(1.1); }
+.stats-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.stats-row {
+  display: grid;
+  grid-template-columns: 14px 1fr 90px 70px 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.stats-swatch { width: 14px; height: 14px; border-radius: 3px; }
+.stats-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats-bar-wrap {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.stats-bar { display: block; height: 100%; border-radius: 3px; }
+.stats-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-soft); font-size: 12px; }
+.stats-pct { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+@media (max-width: 540px) {
+  .stats-row {
+    grid-template-columns: 14px 1fr 60px 44px;
+    gap: 8px;
+  }
+  .stats-bar-wrap { display: none; }
+}
+
 .btn.is-signed-in::before {
   content: "";
   display: inline-block;
