@@ -319,6 +319,7 @@ input, textarea { font: inherit; color: inherit; }
   transition: filter 0.08s, box-shadow 0.08s;
 }
 .cell.empty { background: transparent; color: transparent; }
+.cell.has-icon { font-size: 12px; line-height: 1; }
 
 .row .notes {
   display: flex; align-items: center;
