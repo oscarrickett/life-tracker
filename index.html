@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0d0c" />
+    <title>Life Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 class="brand">
+        <span class="word">Life</span>
+        <span class="dot"></span>
+        <span class="tagline">Tracker</span>
+      </h1>
+      <div class="datebar">
+        <select id="year-select" class="year-select" title="Year"></select>
+        <button class="btn" id="btn-today">Today</button>
+      </div>
+      <div class="active-cat" id="active-cat" title="Active category">
+        <span class="swatch"></span><span class="label">no category selected</span>
+      </div>
+      <div class="actions">
+        <span class="save-indicator" id="save-indicator" title="All changes saved">
+          <span class="dot"></span><span class="lbl">saved</span>
+        </span>
+        <button class="btn" id="btn-stats">Stats</button>
+        <button class="btn" id="btn-sync">Sync</button>
+      </div>
+    </header>
+
+    <div class="hour-header" id="hour-header"><!-- column headers --></div>
+
+    <main class="years" id="years"><!-- year sections injected --></main>
+
+    <button class="fab" id="fab-today" type="button" title="Scroll to today (T)">
+      Today
+    </button>
+
+    <aside class="palette" id="palette">
+      <header>
+        <span>Categories</span>
+      </header>
+      <ul id="palette-list"></ul>
+      <footer>
+        <small>
+          <kbd>1</kbd>–<kbd>9</kbd> = cat 1–9, <kbd>0</kbd> = 10,
+          <kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>0</kbd> = 11–20.<br/>
+          Drag to paint. Right-click to clear.<br/>
+          <kbd>T</kbd> jumps to today.
+        </small>
+      </footer>
+    </aside>
+
+    <dialog id="sync-dialog">
+      <form method="dialog" class="sync">
+        <h2>Sync / Backup</h2>
+        <p>Export everything to a JSON file you can re-import on another device.</p>
+        <div class="row">
+          <button type="button" id="btn-export">Export JSON</button>
+          <button type="button" id="btn-import">Import JSON…</button>
+          <input type="file" id="file-import" accept="application/json" hidden />
+        </div>
+        <p class="muted" id="sync-status"></p>
+        <hr/>
+        <p class="muted">Coming later: GitHub-as-DB or Supabase for live cross-device sync.</p>
+        <menu><button value="close">Close</button></menu>
+      </form>
+    </dialog>
+
+    <dialog id="stats-dialog">
+      <form method="dialog" class="stats">
+        <h2>Stats</h2>
+        <div id="stats-body"></div>
+        <menu><button value="close">Close</button></menu>
+      </form>
+    </dialog>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
