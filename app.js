@@ -759,6 +759,62 @@ function populateStatsYears(select) {
   select.value = years.has(cy) ? cy : "all";
 }
 
+// Highlights: derived per-day / per-week averages for a fixed set of
+// categories, mirroring the breakdown the user kept at the bottom of
+// the original xlsx tracker.
+const HIGHLIGHT_CATS = [
+  { id: 1,  label: "Avg sleep / day",        unit: "day"  },
+  { id: 2,  label: "Avg work / week",        unit: "week" },
+  { id: 3,  label: "Avg hobby / week",       unit: "week" },
+  { id: 8,  label: "Avg productivity / week", unit: "week" },
+  { id: 7,  label: "Avg exercise / week",    unit: "week" },
+  { id: 9,  label: "Avg gaming / week",      unit: "week" },
+  { id: 15, label: "Avg TV / week",          unit: "week" },
+  { id: 6,  label: "Avg social / week",      unit: "week" },
+];
+const fmtNum = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1));
+
+function buildHighlights(totals, dayCount) {
+  if (dayCount === 0) return [];
+  const weeks = dayCount / 7;
+  const items = HIGHLIGHT_CATS.map(({ id, label, unit }) => {
+    const hours = totals.get(id) || 0;
+    const denom = unit === "day" ? dayCount : weeks;
+    const cat = state.catById.get(id);
+    return {
+      label,
+      value: `${fmtNum(hours / denom)} h`,
+      color: cat?.color || "#666",
+    };
+  });
+  // "Days wasted (waking)" — total waste hours / (24 - avg sleep per day)
+  const sleepPerDay = (totals.get(1) || 0) / dayCount;
+  const wasteHours = totals.get(13) || 0;
+  const wasteCat = state.catById.get(13);
+  if (sleepPerDay < 24) {
+    items.push({
+      label: "Days wasted (waking)",
+      value: fmtNum(wasteHours / (24 - sleepPerDay)),
+      color: wasteCat?.color || "#666",
+    });
+  }
+  return items;
+}
+
+function yearProgress(yearFilter) {
+  const cy = todayISO().slice(0, 4);
+  // Only show year-progress when looking at the current year (or all-time).
+  if (yearFilter !== "all" && yearFilter !== cy) return null;
+  const now = new Date();
+  const y = now.getFullYear();
+  const start = new Date(y, 0, 1);
+  const dayOfYear = Math.floor((now - start) / 86400000) + 1;
+  const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const daysInYear = isLeap ? 366 : 365;
+  const hoursLeft = (daysInYear - dayOfYear) * 24;
+  return { dayOfYear, hoursLeft, year: y };
+}
+
 function renderStats() {
   const select = document.getElementById("stats-year");
   const yearFilter = select?.value || "all";
@@ -786,6 +842,29 @@ function renderStats() {
   pieWrap.append(renderPie(segments, 220));
   body.append(pieWrap);
 
+  // Highlights box (derived per-day / per-week metrics).
+  const highlights = buildHighlights(totals, dayCount);
+  if (highlights.length) {
+    const hlList = el("ul", { class: "stats-hl-list" });
+    for (const h of highlights) {
+      hlList.append(el("li", { class: "stats-hl-row" },
+        el("span", { class: "stats-hl-swatch", style: `background:${h.color}` }),
+        el("span", { class: "stats-hl-label" }, h.label),
+        el("span", { class: "stats-hl-value" }, h.value),
+      ));
+    }
+    body.append(
+      el("h3", { class: "stats-section-title" }, "Highlights"),
+      el("div", { class: "stats-highlights" }, hlList),
+    );
+  }
+  const yp = yearProgress(yearFilter);
+  if (yp) {
+    body.append(el("p", { class: "muted stats-year-progress" },
+      `${yp.year} so far · ${yp.dayOfYear} days gone · ${yp.hoursLeft.toLocaleString()} hours left`));
+  }
+
+  body.append(el("h3", { class: "stats-section-title" }, "All categories"));
   const list = el("ul", { class: "stats-list" });
   for (const [id, n] of sorted) {
     const cat = state.catById.get(id);
