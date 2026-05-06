@@ -14,28 +14,35 @@ import {
 // imported from the xlsx (the xlsx colors are still preserved in the DB
 // under colorsByYear if we ever want them back).
 const PALETTE = {
-  1:  "#3a3e47",  // Sleep — dark cool gray
-  2:  "#a06b9c",  // Work — dusty mauve-purple
-  3:  "#a06a32",  // Hobby — toned amber
-  4:  "#6f8170",  // Sorting House — deep sage
-  5:  "#467a7b",  // Party / Clare — muted teal
-  6:  "#5a7a45",  // Social — deeper apple green
-  7:  "#475c8c",  // Exercise — steel blue
-  8:  "#a85a3f",  // Foxo — deep rust (productive)
-  9:  "#624a32",  // Gaming — deep brown
-  10: "#8a4a7e",  // Family Time — muted plum
+  1:  "#5a6270",  // Sleep — cool gray
+  2:  "#bf4eaf",  // Work — vivid mauve-purple
+  3:  "#d97a1f",  // Hobby — vivid amber
+  4:  "#6fa572",  // Sorting House — sage green
+  5:  "#2fa2a3",  // Party / Clare — teal
+  6:  "#6fab37",  // Social — apple green
+  7:  "#4d70d0",  // Exercise — steel blue
+  8:  "#d6622f",  // Foxo — rust
+  9:  "#8b5d2a",  // Gaming — warm brown
+  10: "#b048a0",  // Family Time — plum
   11: "#181b22",  // Travel — near-black
-  12: "#456530",  // Cooking — deep forest
-  13: "#8d7c44",  // Waste Time — dusty olive
-  14: "#7c5272",  // Holiday — dusky mauve
-  15: "#928464",  // TV — dusty sand
-  16: "#5e826c",  // Health — deep jade
-  17: "#8d772f",  // Swedish — dusty gold
-  18: "#4a7bc8",  // Elin — clear blue
+  12: "#4d9926",  // Cooking — forest
+  13: "#c09a35",  // Waste Time — olive
+  14: "#a55a8d",  // Holiday — mauve
+  15: "#c0a05a",  // TV — sand
+  16: "#4eaa7a",  // Health — jade
+  17: "#c69020",  // Swedish — gold
+  18: "#2f7ad5",  // Elin — clear blue
   19: "#535b56",
   20: "#535b56",
 };
 const colorFor = (id) => PALETTE[id] ?? "#666";
+
+const ICONS = {
+  1:  "💤",  // Sleep
+  8:  "🦊",  // Foxo
+  16: "🚿",  // Health
+};
+const iconFor = (id) => ICONS[id] || null;
 
 function adjustHex(hex, amount) {
   const m = String(hex || "").replace("#", "").match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
@@ -267,11 +274,13 @@ function styleRowRuns(iso) {
     const grad = cat ? gradientFor(cat.color, "to right") : "";
     const fg = cat ? textOn(cat.color) : "";
     const label = `${v} · ${nameFor(v, iso)}`;
+    const icon = iconFor(v);
     for (let k = i; k < j; k++) {
       const cell = state.cellEls.get(`${iso}#${k}`);
       if (!cell) continue;
       cell.classList.remove("empty");
-      cell.textContent = String(v);
+      cell.classList.toggle("has-icon", !!icon);
+      cell.textContent = icon || String(v);
       cell.title = label;
       cell.style.color = fg;
       cell.style.background = grad;
@@ -392,7 +401,8 @@ function renderPalette() {
     },
       el("span", { class: "id" }, c.id),
       el("span", { class: "swatch", style: `background:${gradientFor(c.color)}` }),
-      el("span", { class: "name", title: c.name }, c.name),
+      el("span", { class: "name", title: c.name },
+        iconFor(c.id) ? `${iconFor(c.id)} ${c.name}` : c.name),
     ));
   }
   renderActiveCat();
@@ -815,6 +825,20 @@ function yearProgress(yearFilter) {
   return { dayOfYear, hoursLeft, year: y };
 }
 
+function kpiCard(label, value, sub, accent) {
+  return el("div", { class: `kpi${accent ? " " + accent : ""}` },
+    el("div", { class: "kpi-label" }, label),
+    el("div", { class: "kpi-value" }, value),
+    sub ? el("div", { class: "kpi-sub" }, sub) : null,
+  );
+}
+function chartCard(title, ...children) {
+  return el("section", { class: "chart-card" },
+    el("h3", {}, title),
+    ...children,
+  );
+}
+
 function renderStats() {
   const select = document.getElementById("stats-year");
   const yearFilter = select?.value || "all";
@@ -824,50 +848,60 @@ function renderStats() {
   const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]);
 
   const period = yearFilter === "all" ? "all time" : yearFilter;
-  body.append(
-    el("p", { class: "muted" },
-      `${dayCount.toLocaleString()} days · ${totalHours.toLocaleString()} hours tracked · ${period}`),
-  );
+  body.append(el("p", { class: "muted stats-subtitle" }, `Period · ${period}`));
 
   if (totalHours === 0) {
-    body.append(el("p", { class: "muted" }, "No tracked hours in this period."));
+    body.append(el("div", { class: "stats-empty" }, "No tracked hours in this period."));
     return;
   }
 
+  // ----- KPI grid -----
+  const kpis = el("div", { class: "kpi-grid" });
+  kpis.append(
+    kpiCard("Days tracked", dayCount.toLocaleString(), `over ${period}`),
+    kpiCard("Hours tracked", totalHours.toLocaleString(),
+      `${(totalHours / dayCount).toFixed(1)} h/day avg`, "green"),
+  );
+  // Days wasted KPI (waking)
+  const sleepPerDay = (totals.get(1) || 0) / dayCount;
+  if (sleepPerDay < 24) {
+    const waste = totals.get(13) || 0;
+    const wastedDays = waste / (24 - sleepPerDay);
+    kpis.append(kpiCard("Days wasted", fmtNum(wastedDays), "waking time", "red"));
+  }
+  // Year-progress KPIs (when relevant)
+  const yp = yearProgress(yearFilter);
+  if (yp) {
+    kpis.append(
+      kpiCard("Days gone", yp.dayOfYear.toLocaleString(), `${yp.year}`, "blue"),
+      kpiCard("Hours left", yp.hoursLeft.toLocaleString(), `in ${yp.year}`, "blue"),
+    );
+  }
+  body.append(kpis);
+
+  // ----- Pie + Highlights side-by-side -----
   const segments = sorted.map(([id, n]) => {
     const cat = state.catById.get(id);
     return { value: n, color: cat?.color || "#666", label: cat?.name || `Cat ${id}` };
   });
-  const pieWrap = el("div", { class: "stats-pie" });
-  pieWrap.append(renderPie(segments, 280));
+  const pieWrap = el("div", { class: "stats-pie" }, renderPie(segments, 280));
 
-  // Highlights box (derived per-day / per-week metrics).
   const highlights = buildHighlights(totals, dayCount);
-  const highlightsCol = el("div", { class: "stats-overview-col" });
-  if (highlights.length) {
-    const hlList = el("ul", { class: "stats-hl-list" });
-    for (const h of highlights) {
-      hlList.append(el("li", { class: "stats-hl-row" },
-        el("span", { class: "stats-hl-swatch", style: `background:${h.color}` }),
-        el("span", { class: "stats-hl-label" }, h.label),
-        el("span", { class: "stats-hl-value" }, h.value),
-      ));
-    }
-    highlightsCol.append(
-      el("h3", { class: "stats-section-title" }, "Highlights"),
-      el("div", { class: "stats-highlights" }, hlList),
-    );
-  }
-  const yp = yearProgress(yearFilter);
-  const pieCol = el("div", { class: "stats-overview-col stats-overview-col--pie" }, pieWrap);
-  if (yp) {
-    pieCol.append(el("p", { class: "muted stats-year-progress" },
-      `${yp.year} so far · ${yp.dayOfYear} days gone · ${yp.hoursLeft.toLocaleString()} hours left`));
+  const hlList = el("ul", { class: "stats-hl-list" });
+  for (const h of highlights) {
+    hlList.append(el("li", { class: "stats-hl-row" },
+      el("span", { class: "stats-hl-swatch", style: `background:${h.color}` }),
+      el("span", { class: "stats-hl-label" }, h.label),
+      el("span", { class: "stats-hl-value" }, h.value),
+    ));
   }
 
-  body.append(el("div", { class: "stats-overview" }, pieCol, highlightsCol));
+  body.append(el("div", { class: "stats-grid-2" },
+    chartCard("Distribution", pieWrap),
+    chartCard("Highlights", hlList),
+  ));
 
-  body.append(el("h3", { class: "stats-section-title" }, "All categories"));
+  // ----- Full category list -----
   const list = el("ul", { class: "stats-list" });
   for (const [id, n] of sorted) {
     const cat = state.catById.get(id);
@@ -884,7 +918,7 @@ function renderStats() {
       el("span", { class: "stats-pct muted" }, `${pctText}%`),
     ));
   }
-  body.append(list);
+  body.append(chartCard("All categories", list));
 }
 
 function wireStats() {
