@@ -319,7 +319,7 @@ input, textarea { font: inherit; color: inherit; }
   transition: filter 0.08s, box-shadow 0.08s;
 }
 .cell.empty { background: transparent; color: transparent; }
-.cell.has-icon { font-size: 12px; line-height: 1; }
+.cell.has-icon { font-size: 6px; line-height: 1; font-style: italic; letter-spacing: -0.5px; }
 
 .row .notes {
   display: flex; align-items: center;
@@ -579,6 +579,34 @@ dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rg
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
+.chart-card.collapsible details summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.chart-card.collapsible details summary::-webkit-details-marker { display: none; }
+.chart-card.collapsible details summary h3 { margin: 0; flex: 1; }
+.chart-card.collapsible details summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-soft);
+  border-bottom: 2px solid var(--text-soft);
+  transform: rotate(-45deg);
+  transition: transform 0.18s ease;
+  margin-right: 4px;
+}
+.chart-card.collapsible details[open] summary::after {
+  transform: rotate(45deg);
+}
+.chart-card.collapsible details summary:hover::after {
+  border-color: var(--text);
+}
+.chart-card.collapsible details[open] summary { margin-bottom: 16px; }
 .stats-grid-2 {
   display: grid;
   grid-template-columns: 1fr;

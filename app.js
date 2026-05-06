@@ -38,9 +38,7 @@ const PALETTE = {
 const colorFor = (id) => PALETTE[id] ?? "#666";
 
 const ICONS = {
-  1:  "💤",  // Sleep
-  8:  "🦊",  // Foxo
-  16: "🚿",  // Health
+  1: "Zz",  // Sleep
 };
 const iconFor = (id) => ICONS[id] || null;
 
@@ -838,6 +836,16 @@ function chartCard(title, ...children) {
     ...children,
   );
 }
+function collapsibleCard(title, ...children) {
+  const card = document.createElement("section");
+  card.className = "chart-card collapsible";
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.append(el("h3", {}, title));
+  details.append(summary, ...children);
+  card.append(details);
+  return card;
+}
 
 function renderStats() {
   const select = document.getElementById("stats-year");
@@ -918,7 +926,7 @@ function renderStats() {
       el("span", { class: "stats-pct muted" }, `${pctText}%`),
     ));
   }
-  body.append(chartCard("All categories", list));
+  body.append(collapsibleCard("All categories", list));
 }
 
 function wireStats() {
