@@ -59,6 +59,28 @@
     <dialog id="sync-dialog">
       <form method="dialog" class="sync">
         <h2>Sync / Backup</h2>
+
+        <section class="cloud">
+          <h3>Cloud sync</h3>
+          <p class="muted" id="cloud-note">Sign in with your email to keep your data in sync across devices. We'll send a one-time link — no password.</p>
+          <div id="signed-out-pane">
+            <div class="row">
+              <input type="email" id="signin-email" placeholder="you@example.com" class="text-input" />
+              <button type="button" id="btn-signin">Send link</button>
+            </div>
+            <p class="muted" id="signin-status"></p>
+          </div>
+          <div id="signed-in-pane" hidden>
+            <p class="muted">Signed in as <strong id="account-email"></strong>. Changes auto-sync. <span id="sync-state" class="muted"></span></p>
+            <div class="row">
+              <button type="button" id="btn-signout">Sign out</button>
+            </div>
+          </div>
+        </section>
+
+        <hr/>
+
+        <h3>Manual backup</h3>
         <p>Export everything to a JSON file you can re-import on another device.</p>
         <div class="row">
           <button type="button" id="btn-export">Export JSON</button>
@@ -66,8 +88,7 @@
           <input type="file" id="file-import" accept="application/json" hidden />
         </div>
         <p class="muted" id="sync-status"></p>
-        <hr/>
-        <p class="muted">Coming later: GitHub-as-DB or Supabase for live cross-device sync.</p>
+
         <menu><button value="close">Close</button></menu>
       </form>
     </dialog>

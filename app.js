@@ -1,32 +1,39 @@
 /* Life Tracker — stacked rows view.
    Each day is a row, 24 columns are hours, years are grouped.
-   Storage: IndexedDB (seeded once from data/seed.json). */
+   Storage: IndexedDB (seeded once from data/seed.json), with optional
+   Supabase cloud sync (see sync.js) for cross-device. */
+
+import {
+  cloudConfigured, getSession, onAuthChange,
+  signInWithEmail, signOut,
+  pullDays, pushDay, pushDays,
+} from "./sync.js";
 
 // Unified palette — same hue family as the original xlsx, but consistent
 // saturation/lightness so the cells read as a set. Overrides any color
 // imported from the xlsx (the xlsx colors are still preserved in the DB
 // under colorsByYear if we ever want them back).
 const PALETTE = {
-  1:  "#4d525c",  // Sleep — dark cool gray
-  2:  "#c477b8",  // Work — muted pink-purple
-  3:  "#d68a3e",  // Hobby — warm amber
-  4:  "#9bb39a",  // Sorting House — sage
-  5:  "#5fb0b3",  // Party / Clare — muted teal
-  6:  "#7cae5d",  // Social — apple green
-  7:  "#4a6cd6",  // Exercise — medium blue
-  8:  "#c25a3a",  // Foxo — rich rust (productive)
-  9:  "#8a6444",  // Gaming — warm brown
-  10: "#c267b3",  // Family Time — muted magenta
-  11: "#2c3340",  // Travel — deep navy
-  12: "#5a8e44",  // Cooking — forest green
-  13: "#c4ae5b",  // Waste Time — dusty yellow
-  14: "#b073a0",  // Holiday — mauve
-  15: "#c9b87e",  // TV — warm sand
-  16: "#82b896",  // Health — soft jade
-  17: "#c9a73e",  // Swedish — mustard gold
-  18: "#e08aa6",  // Elin — warm rose (fun)
-  19: "#7c8780",
-  20: "#7c8780",
+  1:  "#3a3e47",  // Sleep — dark cool gray
+  2:  "#8a5985",  // Work — dusty mauve-purple
+  3:  "#a06a32",  // Hobby — toned amber
+  4:  "#6f8170",  // Sorting House — deep sage
+  5:  "#467a7b",  // Party / Clare — muted teal
+  6:  "#5a7a45",  // Social — deeper apple green
+  7:  "#475c8c",  // Exercise — steel blue
+  8:  "#8f4a32",  // Foxo — deep rust (productive)
+  9:  "#624a32",  // Gaming — deep brown
+  10: "#8a4a7e",  // Family Time — muted plum
+  11: "#2e3a52",  // Travel — deep slate-navy
+  12: "#456530",  // Cooking — deep forest
+  13: "#8d7c44",  // Waste Time — dusty olive
+  14: "#7c5272",  // Holiday — dusky mauve
+  15: "#928464",  // TV — dusty sand
+  16: "#5e826c",  // Health — deep jade
+  17: "#8d772f",  // Swedish — dusty gold
+  18: "#a36278",  // Elin — deep rose (fun)
+  19: "#535b56",
+  20: "#535b56",
 };
 const colorFor = (id) => PALETTE[id] ?? "#666";
 
@@ -39,8 +46,8 @@ function adjustHex(hex, amount) {
     .join("");
 }
 
-function gradientFor(hex) {
-  return `linear-gradient(135deg, ${adjustHex(hex, 22)} 0%, ${hex} 55%, ${adjustHex(hex, -22)} 100%)`;
+function gradientFor(hex, dir = "135deg") {
+  return `linear-gradient(${dir}, ${adjustHex(hex, 22)} 0%, ${hex} 55%, ${adjustHex(hex, -22)} 100%)`;
 }
 
 // pick black or white text based on background luminance
@@ -193,6 +200,8 @@ const state = {
   activeYear: null,        // number
   activeCat: null,
   paint: { active: false, button: 0 },
+  userId: null,            // supabase auth user id when signed in
+  userEmail: null,
 };
 
 function nameFor(catId, iso) {
@@ -227,13 +236,16 @@ function renderHourHeader() {
     el("div", { class: "h-date" }, "Date"),
     el("div", { class: "h-day" }, "Day"),
     ...Array.from({ length: 24 }, (_, h) =>
-      el("div", { class: "h-hour" }, String(h).padStart(2, "0"))),
+      el("div", { class: "h-hour", dataset: { h: String(h) } }, String(h).padStart(2, "0"))),
     el("div", { class: "h-notes" }, "Notes"),
   );
 }
 
-// Re-style every cell in a day's row so that consecutive same-category cells
-// share one continuous gradient (background-size + background-position trick).
+// Each non-empty cell renders its category's gradient, but stretched as if
+// it spanned the full 24-hour row width — so cell at hour h always shows the
+// h-th 1/24th slice of the gradient. Cells in the same hour column across
+// different days therefore show the same shade, eliminating row-to-row
+// terracing while keeping a smooth left-to-right gradient.
 function styleRowRuns(iso) {
   const day = state.daysByIso.get(iso);
   const hours = day?.hours || new Array(24).fill(null);
@@ -258,9 +270,8 @@ function styleRowRuns(iso) {
     }
     let j = i;
     while (j < 24 && hours[j] === v) j++;
-    const runLen = j - i;
     const cat = state.catById.get(v);
-    const grad = cat ? gradientFor(cat.color) : "";
+    const grad = cat ? gradientFor(cat.color, "to right") : "";
     const fg = cat ? textOn(cat.color) : "";
     const label = `${v} · ${nameFor(v, iso)}`;
     for (let k = i; k < j; k++) {
@@ -271,18 +282,10 @@ function styleRowRuns(iso) {
       cell.title = label;
       cell.style.color = fg;
       cell.style.background = grad;
-      if (runLen > 1) {
-        cell.style.backgroundSize = `${runLen * 100}% 100%`;
-        cell.style.backgroundPosition = `${(k - i) / (runLen - 1) * 100}% 0`;
-        cell.style.backgroundRepeat = "no-repeat";
-        // hide left border within a run so the gradient flows uninterrupted
-        cell.style.borderLeftColor = k === i ? "" : "transparent";
-      } else {
-        cell.style.backgroundSize = "";
-        cell.style.backgroundPosition = "";
-        cell.style.backgroundRepeat = "";
-        cell.style.borderLeftColor = "";
-      }
+      cell.style.backgroundSize = "2400% 100%";
+      cell.style.backgroundPosition = `${(k / 23) * 100}% 0`;
+      cell.style.backgroundRepeat = "no-repeat";
+      cell.style.borderLeftColor = k === i ? "" : "transparent";
     }
     i = j;
   }
@@ -446,19 +449,32 @@ function scheduleSave(iso) {
   setSaveStatus("saving");
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
+    const isos = [...dirty];
+    dirty.clear();
+    const nowIso = new Date().toISOString();
     try {
       const t = state.db.transaction(["days"], "readwrite");
       const os = t.objectStore("days");
-      for (const id of dirty) {
+      for (const id of isos) {
         const d = state.daysByIso.get(id);
-        if (d) os.put(d);
+        if (d) {
+          d.updated_at = nowIso;
+          os.put(d);
+        }
       }
-      dirty.clear();
       await txDone(t);
       setSaveStatus("saved");
     } catch (e) {
       console.error(e);
       setSaveStatus("error");
+      return;
+    }
+    // Best-effort cloud push; failures retry on next save.
+    if (state.userId) {
+      for (const id of isos) {
+        const d = state.daysByIso.get(id);
+        if (d) pushDay(state.userId, d).catch((e) => console.warn("push", id, e));
+      }
     }
   }, 250);
 }
@@ -619,6 +635,126 @@ function wireStats() {
   });
 }
 
+// ---------- cloud sync ----------
+function setSyncIndicator(text) {
+  const el = document.getElementById("sync-state");
+  if (el) el.textContent = text || "";
+}
+function updateAccountUI() {
+  const signedOut = document.getElementById("signed-out-pane");
+  const signedIn = document.getElementById("signed-in-pane");
+  const emailEl = document.getElementById("account-email");
+  const btnSync = document.getElementById("btn-sync");
+  const isIn = !!state.userId;
+  if (signedOut) signedOut.hidden = isIn;
+  if (signedIn) signedIn.hidden = !isIn;
+  if (emailEl) emailEl.textContent = state.userEmail || "";
+  if (btnSync) btnSync.classList.toggle("is-signed-in", isIn);
+}
+
+async function reconcileWithCloud() {
+  if (!state.userId) return;
+  setSyncIndicator("syncing…");
+  try {
+    const remote = await pullDays();
+    const remoteByDate = new Map(remote.map((r) => [r.date, r]));
+    const localUpdates = [];
+    const toPush = [];
+    for (const local of state.daysByIso.values()) {
+      const r = remoteByDate.get(local.date);
+      const localT = Date.parse(local.updated_at || 0) || 0;
+      const remoteT = r ? (Date.parse(r.updated_at) || 0) : -1;
+      if (!r) {
+        // Only push if local has any actual content.
+        const hasContent =
+          (Array.isArray(local.hours) && local.hours.some((h) => h != null)) ||
+          (local.notes && local.notes.length);
+        if (hasContent) toPush.push(local);
+      } else if (localT > remoteT) {
+        toPush.push(local);
+      } else if (remoteT > localT) {
+        const merged = {
+          date: r.date,
+          day: dowShort(r.date),
+          hours: r.hours,
+          notes: r.notes,
+          updated_at: r.updated_at,
+        };
+        state.daysByIso.set(r.date, merged);
+        localUpdates.push(merged);
+      }
+    }
+    for (const r of remote) {
+      if (state.daysByIso.has(r.date)) continue;
+      const merged = {
+        date: r.date,
+        day: dowShort(r.date),
+        hours: r.hours,
+        notes: r.notes,
+        updated_at: r.updated_at,
+      };
+      state.daysByIso.set(r.date, merged);
+      localUpdates.push(merged);
+    }
+    if (localUpdates.length) await bulkPut(state.db, "days", localUpdates);
+    if (toPush.length) await pushDays(state.userId, toPush);
+    for (const u of localUpdates) styleRowRuns(u.date);
+    setSyncIndicator(`synced · ${remote.length + toPush.length} days`);
+    setTimeout(() => setSyncIndicator(""), 2500);
+  } catch (e) {
+    console.error("reconcile failed", e);
+    setSyncIndicator("sync error");
+  }
+}
+
+async function initCloud() {
+  if (!cloudConfigured) {
+    const note = document.getElementById("cloud-note");
+    if (note) note.textContent =
+      "Cloud sync not configured. Paste your Supabase anon key into config.js.";
+    return;
+  }
+  const session = await getSession();
+  if (session) {
+    state.userId = session.user.id;
+    state.userEmail = session.user.email;
+    updateAccountUI();
+    await reconcileWithCloud();
+  } else {
+    updateAccountUI();
+  }
+  onAuthChange(async (s) => {
+    if (s) {
+      state.userId = s.user.id;
+      state.userEmail = s.user.email;
+      updateAccountUI();
+      await reconcileWithCloud();
+    } else {
+      state.userId = null;
+      state.userEmail = null;
+      updateAccountUI();
+    }
+  });
+
+  document.getElementById("btn-signin")?.addEventListener("click", async () => {
+    const input = document.getElementById("signin-email");
+    const email = (input?.value || "").trim();
+    const status = document.getElementById("signin-status");
+    if (!email) { if (status) status.textContent = "Enter your email."; return; }
+    if (status) status.textContent = "Sending link…";
+    try {
+      await signInWithEmail(email);
+      if (status) status.textContent = `Check ${email} for the sign-in link.`;
+    } catch (e) {
+      console.error(e);
+      if (status) status.textContent = `Error: ${e.message || e}`;
+    }
+  });
+  document.getElementById("btn-signout")?.addEventListener("click", async () => {
+    await signOut();
+  });
+}
+
 // ---------- boot ----------
 async function reload() {
   const cats = await getAllCategories(state.db);
@@ -653,6 +789,7 @@ async function boot() {
   wireDateNav();
   wireSync();
   wireStats();
+  await initCloud();
 }
 
 boot().catch((e) => {
