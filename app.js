@@ -21,7 +21,7 @@ const PALETTE = {
   5:  "#2fa2a3",  // Party / Clare — teal
   6:  "#6fab37",  // Social — apple green
   7:  "#4d70d0",  // Exercise — steel blue
-  8:  "#d6622f",  // Foxo — rust
+  8:  "#cc4125",  // Foxo — crimson red
   9:  "#8b5d2a",  // Gaming — warm brown
   10: "#b048a0",  // Family Time — plum
   11: "#181b22",  // Travel — near-black
