@@ -35,7 +35,11 @@ export async function signInWithProvider(provider) {
 
 export async function signOut() {
   if (!supabase) return;
-  await supabase.auth.signOut();
+  // scope:"local" clears this device's session without calling the server's
+  // /logout endpoint. The default ("global") tries to revoke the JWT across
+  // every session for this user and returns 403 if the token is stale —
+  // which leaves the user stuck signed-in on the client.
+  await supabase.auth.signOut({ scope: "local" });
 }
 
 export async function pullDays(sinceIso) {

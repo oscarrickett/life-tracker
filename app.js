@@ -1281,7 +1281,8 @@ async function initCloud() {
   };
   wireProviderButton("btn-signin-google", "google", "Google");
   document.getElementById("btn-signout")?.addEventListener("click", async () => {
-    await signOut();
+    try { await signOut(); } catch (e) { console.warn("signOut error", e); }
+    document.getElementById("sync-dialog")?.close();
   });
   document.getElementById("btn-refresh")?.addEventListener("click", async () => {
     await refreshFromCloud(false);
