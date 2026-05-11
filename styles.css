@@ -223,6 +223,7 @@ body.demo-mode .brand .word {
   font-size: 11px;
   padding: 0 4px;
 }
+.save-indicator[hidden] { display: none; }
 .save-indicator .dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--green);
@@ -851,6 +852,66 @@ dialog details.advanced > .row { margin-top: 8px; }
 }
 .fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .fab:active { transform: translateY(0); }
+
+/* ---- signed-out empty state ---- */
+.signin-overlay {
+  position: fixed;
+  inset: var(--top-h) 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 13, 12, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 6;
+  padding: 24px;
+}
+.signin-overlay[hidden] { display: none; }
+.signin-overlay-card {
+  background: rgba(15, 18, 22, 0.96);
+  border: 1px solid var(--border-hi);
+  border-radius: 16px;
+  padding: 36px clamp(28px, 5vw, 48px) 32px;
+  text-align: center;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: var(--shadow);
+}
+.signin-overlay-card h2 {
+  margin: 0 0 10px;
+  font-family: "Archivo Black", sans-serif;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.signin-overlay-card > p {
+  margin: 0 0 22px;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.signin-overlay-card .oauth-btn {
+  width: 100%;
+  margin-bottom: 18px;
+}
+.signin-overlay-card .overlay-hint {
+  margin: 0;
+  font-size: 11px;
+}
+.signin-overlay-card .link {
+  background: none;
+  border: none;
+  color: var(--accent-2);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.signin-overlay-card .link:hover { color: var(--accent); }
 
 /* ---- tablet / narrow desktop: keep topbar legible without overflow ---- */
 @media (max-width: 1280px) {

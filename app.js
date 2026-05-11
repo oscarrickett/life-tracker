@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.1.2";
 
 import {
   cloudConfigured, getSession, onAuthChange,
@@ -266,6 +266,7 @@ function setDemoMode(on, { persist = true } = {}) {
   }
   renderYears();
   scrollToIso(todayISO());
+  refreshSignedOutOverlay();
   if (!on && state.userId) refreshFromCloud(true);
 }
 
@@ -1092,6 +1093,17 @@ function updateAccountUI() {
     btnSync.classList.toggle("is-signed-in", isIn);
     btnSync.textContent = isIn ? "Account" : "Sign in";
   }
+  refreshSignedOutOverlay();
+}
+
+// Show the centered sign-in CTA whenever the user has no real session and
+// isn't in demo mode. Both updateAccountUI and setDemoMode call this so the
+// overlay reacts to either auth or demo-toggle changes.
+function refreshSignedOutOverlay() {
+  const show = !state.userId && !demoActive;
+  document.body.classList.toggle("signed-out", show);
+  const overlay = document.getElementById("signin-overlay");
+  if (overlay) overlay.hidden = !show;
 }
 
 async function reconcileWithCloud() {
@@ -1293,6 +1305,10 @@ async function initCloud() {
     });
   };
   wireProviderButton("btn-signin-google", "google", "Google");
+  wireProviderButton("overlay-signin-btn", "google", "Google");
+  document.getElementById("overlay-demo-btn")?.addEventListener("click", () => {
+    setDemoMode(true);
+  });
   document.getElementById("btn-signout")?.addEventListener("click", async () => {
     try { await signOut(); } catch (e) { console.warn("signOut error", e); }
     document.getElementById("sync-dialog")?.close();
