@@ -21,11 +21,15 @@
   --glow: 0 0 0 1px rgba(0,200,150,0.35), 0 0 24px rgba(0,200,150,0.25);
 
   --row-h: 20px;
-  --hour-w: 34px;
+  /* Hour / notes / side widths scale with viewport so the layout shrinks
+     to fit instead of pushing the topbar (and the Account button) off the
+     right edge. At ≥1900px these hit their max; at ≤900px the mobile
+     breakpoint takes over. */
+  --hour-w: clamp(22px, 1.8vw, 34px);
   --date-w: 64px;
   --day-w: 44px;
-  --notes-w: 280px;
-  --side-w: 260px;
+  --notes-w: clamp(150px, 14vw, 280px);
+  --side-w: clamp(200px, 16vw, 260px);
   --top-h: 56px;
   --hours-h: 26px;
   color-scheme: dark;
@@ -76,7 +80,11 @@ input, textarea { font: inherit; color: inherit; }
   gap: 14px;
   padding: 0 18px;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
+.topbar > .brand,
+.topbar > .datebar,
+.topbar > .actions { flex-shrink: 0; }
 
 .brand {
   margin: 0;
@@ -174,8 +182,16 @@ body.demo-mode .brand .word {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 5px 10px;
-  min-width: 170px;
+  min-width: 0;
+  flex: 0 1 170px;
+  overflow: hidden;
   transition: border-color 0.15s;
+}
+.active-cat .label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .active-cat.has-cat { border-color: var(--border-hi); }
 .active-cat .swatch {
@@ -823,6 +839,12 @@ dialog details.advanced > .row { margin-top: 8px; }
 }
 .fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .fab:active { transform: translateY(0); }
+
+/* ---- tablet / narrow desktop: keep topbar legible without overflow ---- */
+@media (max-width: 1280px) {
+  .topbar .brand .tagline { display: none; }
+  .save-indicator .lbl { display: none; }
+}
 
 /* ---- mobile ---- */
 @media (max-width: 760px) {
