@@ -236,7 +236,6 @@ body.demo-mode .brand .word {
 }
 .save-indicator.error .dot { background: var(--red); box-shadow: 0 0 10px var(--red); }
 .save-indicator.ok-cloud .dot { background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2); }
-.save-indicator.ok-local .dot { background: var(--text-soft); box-shadow: 0 0 6px rgba(255,255,255,0.18); }
 @keyframes savePulse { 50% { opacity: 0.45; } }
 
 /* ---- hour column header ---- */

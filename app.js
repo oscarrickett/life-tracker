@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 
 import {
   cloudConfigured, getSession, onAuthChange,
@@ -581,6 +581,14 @@ function refreshSaveIndicator() {
   el.classList.remove("saving", "error", "uploading", "ok-local", "ok-cloud");
   const lbl = el.querySelector(".lbl");
 
+  // Nothing to indicate when signed out — the grid is empty and edits are
+  // blocked. The "Sign in" topbar button is the only relevant affordance.
+  if (!state.userId) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+
   if (localPhase === "error") {
     el.classList.add("error");
     if (lbl) lbl.textContent = "save error";
@@ -620,10 +628,6 @@ function refreshSaveIndicator() {
     el.title = "Cloud connected — no changes yet this session.";
     return;
   }
-  // not signed in
-  el.classList.add("ok-local");
-  if (lbl) lbl.textContent = "local only";
-  el.title = "Saved on this device only. Sign in to back up to the cloud.";
 }
 
 // Tick the clock label every minute so "synced 14:23" stays current as time passes.
@@ -688,6 +692,10 @@ function scheduleSave(iso) {
 
 function applyHour(iso, h, catId) {
   if (h < 0 || h > 23) return;
+  // Editing requires sign-in (or demo mode). Without a session, edits would
+  // write to IndexedDB but never reload, since reload() now gates IDB load
+  // on session — so the change would silently vanish on refresh.
+  if (!state.userId && !demoActive) return;
   const d = getOrInitDay(iso);
   if (d.hours[h] === catId) return;
   d.hours[h] = catId;
@@ -726,10 +734,11 @@ function wirePaint() {
   root.addEventListener("contextmenu", (e) => {
     if (cellOf(e.target)) e.preventDefault();
   });
-  // Notes editing — save on input
+  // Notes editing — save on input. Same auth gate as applyHour().
   root.addEventListener("input", (e) => {
     const t = e.target;
     if (!(t instanceof HTMLInputElement) || t.dataset.notes !== "1") return;
+    if (!state.userId && !demoActive) { t.value = ""; return; }
     const iso = t.dataset.iso;
     const d = getOrInitDay(iso);
     d.notes = t.value;
