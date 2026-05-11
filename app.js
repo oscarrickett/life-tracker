@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.2";
+const APP_VERSION = "1.1.3";
 
 import {
   cloudConfigured, getSession, onAuthChange,
