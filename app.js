@@ -3,6 +3,10 @@
    Storage: IndexedDB (seeded once from data/seed.json), with optional
    Supabase cloud sync (see sync.js) for cross-device. */
 
+// Bump on each user-visible release. Stamped into the topbar so a refresh
+// can be verified at a glance after a Pages rebuild.
+const APP_VERSION = "1.1.0";
+
 import {
   cloudConfigured, getSession, onAuthChange,
   signInWithProvider, signOut,
@@ -1313,6 +1317,8 @@ async function reload() {
 }
 
 async function boot() {
+  const vEl = document.getElementById("app-version");
+  if (vEl) vEl.textContent = `v${APP_VERSION}`;
   state.db = await openDB();
   await maybeSeed(state.db);
   await reload();

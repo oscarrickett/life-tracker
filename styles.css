@@ -127,6 +127,19 @@ body.demo-mode .brand .word {
   text-transform: uppercase;
   transform: translateY(-2px);
 }
+.brand .version {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
+  transform: translateY(-2px);
+  user-select: text;
+}
 .brand .dot {
   width: 5px; height: 5px; border-radius: 50%;
   background: var(--accent-2);
