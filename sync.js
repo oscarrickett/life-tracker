@@ -24,11 +24,12 @@ export function onAuthChange(cb) {
   return supabase.auth.onAuthStateChange((_e, session) => cb(session));
 }
 
-export async function signInWithEmail(email) {
+export async function signInWithProvider(provider) {
   if (!supabase) throw new Error("cloud not configured");
-  return supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.href },
+  const redirectTo = window.location.origin + window.location.pathname;
+  return supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo },
   });
 }
 

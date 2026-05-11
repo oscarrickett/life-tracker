@@ -742,6 +742,66 @@ select option {
   margin-right: 6px;
   transform: translateY(-1px);
 }
+
+/* OAuth provider buttons in the sign-in dialog */
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 6px;
+}
+.oauth-btn {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 11px 16px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 10px !important;
+  background: var(--surface-hi) !important;
+  border: 1px solid var(--border-hi) !important;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.oauth-btn:hover {
+  background: rgba(255,255,255,0.13) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.oauth-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Advanced/manual backup collapsible */
+dialog details.advanced {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+dialog details.advanced summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  list-style: none;
+  padding: 4px 0;
+  user-select: none;
+}
+dialog details.advanced summary::-webkit-details-marker { display: none; }
+dialog details.advanced summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s;
+}
+dialog details.advanced[open] summary::before { content: "▾ "; }
+dialog details.advanced summary:hover { color: var(--text-soft); }
+dialog details.advanced > p,
+dialog details.advanced > .row { margin-top: 8px; }
 .muted { color: var(--muted); font-size: 12px; }
 
 /* ---- floating today button ---- */

@@ -5,7 +5,7 @@
 
 import {
   cloudConfigured, getSession, onAuthChange,
-  signInWithEmail, signOut,
+  signInWithProvider, signOut,
   pullDays, pushDay, pushDays,
 } from "./sync.js";
 
@@ -1075,7 +1075,10 @@ function updateAccountUI() {
   if (signedOut) signedOut.hidden = isIn;
   if (signedIn) signedIn.hidden = !isIn;
   if (emailEl) emailEl.textContent = state.userEmail || "";
-  if (btnSync) btnSync.classList.toggle("is-signed-in", isIn);
+  if (btnSync) {
+    btnSync.classList.toggle("is-signed-in", isIn);
+    btnSync.textContent = isIn ? "Account" : "Sign in";
+  }
 }
 
 async function reconcileWithCloud() {
@@ -1254,26 +1257,29 @@ async function initCloud() {
       state.userEmail = null;
       cloudState.lastSyncAt = null;
       cloudState.hasError = false;
+      cloudState.maxUpdatedAt = null;
       stopBackgroundRefresh();
+      state.daysByIso = new Map();
+      renderYears();
+      scrollToIso(todayISO());
       updateAccountUI();
       refreshSaveIndicator();
     }
   });
 
-  document.getElementById("btn-signin")?.addEventListener("click", async () => {
-    const input = document.getElementById("signin-email");
-    const email = (input?.value || "").trim();
-    const status = document.getElementById("signin-status");
-    if (!email) { if (status) status.textContent = "Enter your email."; return; }
-    if (status) status.textContent = "Sending link…";
-    try {
-      await signInWithEmail(email);
-      if (status) status.textContent = `Check ${email} for the sign-in link.`;
-    } catch (e) {
-      console.error(e);
-      if (status) status.textContent = `Error: ${e.message || e}`;
-    }
-  });
+  const wireProviderButton = (id, provider, label) => {
+    document.getElementById(id)?.addEventListener("click", async () => {
+      const status = document.getElementById("signin-status");
+      if (status) status.textContent = `Redirecting to ${label}…`;
+      try {
+        await signInWithProvider(provider);
+      } catch (e) {
+        console.error(e);
+        if (status) status.textContent = `Error: ${e.message || e}. Make sure ${label} is enabled in Supabase.`;
+      }
+    });
+  };
+  wireProviderButton("btn-signin-google", "google", "Google");
   document.getElementById("btn-signout")?.addEventListener("click", async () => {
     await signOut();
   });
@@ -1283,14 +1289,22 @@ async function initCloud() {
 }
 
 // ---------- boot ----------
+// Days are only loaded from IndexedDB when the user has a Supabase
+// session — without auth the grid stays blank, so the local cache
+// from a previous signed-in session doesn't leak into a signed-out view.
 async function reload() {
   const cats = await getAllCategories(state.db);
   cats.sort((a, b) => a.id - b.id);
   state.categories = cats;
   state.catById = new Map(cats.map((c) => [c.id, c]));
   state.namesByYear = (await getMeta(state.db, "categoriesByYear")) || {};
-  const days = await getAllDays(state.db);
-  state.daysByIso = new Map(days.map((d) => [d.date, d]));
+  const session = cloudConfigured ? await getSession() : null;
+  if (session) {
+    const days = await getAllDays(state.db);
+    state.daysByIso = new Map(days.map((d) => [d.date, d]));
+  } else {
+    state.daysByIso = new Map();
+  }
   renderHourHeader();
   renderYears();
   renderPalette();
