@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.9";
+const APP_VERSION = "1.2.1";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -567,22 +567,6 @@ function setActiveCat(id) {
   renderActiveCat();
 }
 
-// Mobile: tapping the active-cat chip focuses an invisible numeric input,
-// which pops the OS keyboard. Each digit typed re-evaluates the value and
-// applies it if it matches an existing category id.
-function wireMobileCatInput() {
-  const inp = document.getElementById("cat-input-mobile");
-  if (!inp) return;
-  inp.addEventListener("input", () => {
-    const n = parseInt(inp.value, 10);
-    if (Number.isInteger(n) && state.catById.has(n)) setActiveCat(n);
-  });
-  inp.addEventListener("blur", () => { inp.value = ""; });
-  inp.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { inp.blur(); e.preventDefault(); }
-  });
-}
-
 // ---------- mutations ----------
 function getOrInitDay(iso) {
   let d = state.daysByIso.get(iso);
@@ -874,8 +858,6 @@ function scrollToIso(iso, smooth = false) {
 
 function wireDateNav() {
   document.getElementById("btn-today").addEventListener("click", () =>
-    scrollToIso(todayISO(), true));
-  document.getElementById("fab-today").addEventListener("click", () =>
     scrollToIso(todayISO(), true));
   document.getElementById("year-select").addEventListener("change", (e) =>
     activateYear(Number(e.target.value)));
@@ -1531,7 +1513,6 @@ async function boot() {
   }
   wirePaint();
   wireKeyboard();
-  wireMobileCatInput();
   wireDateNav();
   wireSync();
   wireStats();

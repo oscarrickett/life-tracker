@@ -203,26 +203,6 @@ body.demo-mode .brand .word {
   overflow: hidden;
   transition: border-color 0.15s;
 }
-/* On mobile this invisible input overlays the active-cat chip; tapping
-   the chip focuses the input → OS numeric keyboard appears → typing
-   1–20 changes the active category. Desktop hides it entirely so the
-   existing 1–9/0 + Shift physical-keyboard shortcuts still work. */
-.cat-input-mobile {
-  display: none;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: transparent;
-  caret-color: transparent;
-  font-size: 16px; /* keep ≥16px so iOS doesn't auto-zoom on focus */
-  text-align: center;
-  outline: none;
-  -webkit-tap-highlight-color: transparent;
-}
 .active-cat .label {
   white-space: nowrap;
   overflow: hidden;
@@ -924,26 +904,6 @@ dialog details.advanced > p,
 dialog details.advanced > .row { margin-top: 8px; }
 .muted { color: var(--muted); font-size: 12px; }
 
-/* ---- floating today button ---- */
-.fab {
-  position: fixed;
-  right: calc(var(--side-w) + 18px);
-  bottom: 22px;
-  z-index: 6;
-  background: var(--accent-grad);
-  color: #0a0a0f;
-  border: 0;
-  border-radius: 999px;
-  padding: 12px 22px;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.2px;
-  box-shadow: 0 8px 28px rgba(0,200,150,0.45), 0 1px 0 rgba(255,255,255,0.1) inset;
-  transition: all 0.15s;
-}
-.fab:hover { filter: brightness(1.08); transform: translateY(-1px); }
-.fab:active { transform: translateY(0); }
-
 /* ---- signed-out empty state ---- */
 .signin-overlay {
   position: fixed;
@@ -1015,10 +975,11 @@ dialog details.advanced > .row { margin-top: 8px; }
    desktop-only; mobile is a read-only view of the grid + life bar. The
    topbar shrinks to fit a phone screen without horizontal scroll. */
 @media (max-width: 760px) {
-  :root { --hour-w: 22px; --row-h: 26px; --notes-w: 140px; --side-w: 0; }
+  :root { --row-h: 22px; --side-w: 0; }
   body {
     grid-template-columns: 1fr;
-    grid-template-rows: var(--top-h) var(--life-h) var(--hours-h) 1fr;
+    /* topbar row is auto so it can grow when contents wrap to a 2nd line */
+    grid-template-rows: auto var(--life-h) var(--hours-h) 1fr;
     grid-template-areas:
       "topbar"
       "lifebar"
@@ -1026,18 +987,21 @@ dialog details.advanced > .row { margin-top: 8px; }
       "years";
   }
   .palette { display: none; }
-  /* Keep the small active-cat chip in the topbar so the user can see what
-     category is selected and tap to change it. The overlay numeric input
-     pops the OS keyboard on tap. */
-  .active-cat { flex: 0 0 auto; padding: 5px 8px; }
-  .active-cat .label { max-width: 80px; }
-  .cat-input-mobile { display: block; }
+  /* Mobile is a read-only view — no category picker, no current-category
+     chip. Hours can't be assigned without a category, so there's nothing
+     to interact with here. */
+  .active-cat { display: none; }
   .life-bar { padding: 0 10px; gap: 8px; }
+  /* Topbar wraps instead of clipping — Stats / Sign-in roll under to a 2nd
+     line on narrow screens instead of getting cut off at the right edge. */
   .topbar {
     gap: 6px;
-    padding: 0 8px;
-    overflow: hidden;
-    flex-wrap: nowrap;
+    padding: 6px 8px;
+    overflow: visible;
+    flex-wrap: wrap;
+    align-content: center;
+    height: auto;
+    min-height: var(--top-h);
   }
   .topbar .brand .word { font-size: 18px; }
   .topbar .brand .tagline,
@@ -1047,10 +1011,25 @@ dialog details.advanced > .row { margin-top: 8px; }
   .actions .btn { padding: 6px 10px; font-size: 12px; }
   .year-select { font-size: 13px; padding: 5px 22px 5px 8px; }
   .datebar { gap: 4px; }
-  .fab { right: 16px; bottom: 16px; }
-  .cell { font-size: 8px; }
+  /* Squish the grid: drop date + notes columns and let all 24 hour cells
+     flex to share the remaining width so the full day is always visible
+     without horizontal scrolling. */
+  .hour-header,
+  .row {
+    grid-template-columns: var(--day-w) repeat(24, 1fr);
+  }
+  .hour-header .h-date,
+  .hour-header .h-notes,
+  .row .date,
+  .row .notes { display: none; }
+  .hour-header .h-hour { font-size: 9px; }
+  .cell { font-size: 7px; border-left-color: rgba(255, 255, 255, 0.06); }
 }
 @media (max-width: 420px) {
   .topbar .brand { display: none; }
   .datebar .btn { display: none; } /* fall back to the FAB for "Today" */
+  /* On very narrow screens, even the day-of-week label takes too much
+     width — shrink it so each hour cell still gets a few pixels. */
+  :root { --day-w: 28px; }
+  .row .day { font-size: 9px; padding-left: 2px; }
 }

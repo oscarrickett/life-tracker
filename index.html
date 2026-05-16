@@ -25,16 +25,8 @@
         <select id="year-select" class="year-select" title="Year"></select>
         <button class="btn" id="btn-today">Today</button>
       </div>
-      <div class="active-cat" id="active-cat" title="Active category — tap on mobile to type a number 1–20">
+      <div class="active-cat" id="active-cat" title="Active category">
         <span class="swatch"></span><span class="label">no category selected</span>
-        <input
-          class="cat-input-mobile"
-          id="cat-input-mobile"
-          inputmode="numeric"
-          pattern="[0-9]*"
-          maxlength="2"
-          aria-label="Set active category by number"
-        />
       </div>
       <div class="actions">
         <span class="save-indicator" id="save-indicator" hidden>
@@ -54,10 +46,6 @@
     <div class="hour-header" id="hour-header"><!-- column headers --></div>
 
     <main class="years" id="years"><!-- year sections injected --></main>
-
-    <button class="fab" id="fab-today" type="button" title="Scroll to today (T)">
-      Today
-    </button>
 
     <div class="signin-overlay" id="signin-overlay" hidden>
       <div class="signin-overlay-card">
