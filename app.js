@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.6";
+const APP_VERSION = "1.1.9";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -19,6 +19,14 @@ const LIFE_PHASE_COLORS = {
   childhood:  "rgba(192, 154, 53, 0.22)",  // warm amber
   adult:      "rgba(255, 255, 255, 0.06)", // neutral
   retirement: "rgba(176,  72, 160, 0.22)", // plum
+};
+// Saturated versions painted on the *lived* portion so the phase you're
+// currently in (and any you've passed) reads clearly, instead of the green
+// accent washing over the amber childhood band.
+const LIFE_PHASE_FILL_COLORS = {
+  childhood:  "#c09a35",  // warm amber
+  adult:      "#1fe3a8",  // accent green
+  retirement: "#b048a0",  // plum
 };
 
 import {
@@ -557,6 +565,22 @@ function setActiveCat(id) {
     li.setAttribute("aria-pressed", String(Number(li.dataset.id) === id));
   }
   renderActiveCat();
+}
+
+// Mobile: tapping the active-cat chip focuses an invisible numeric input,
+// which pops the OS keyboard. Each digit typed re-evaluates the value and
+// applies it if it matches an existing category id.
+function wireMobileCatInput() {
+  const inp = document.getElementById("cat-input-mobile");
+  if (!inp) return;
+  inp.addEventListener("input", () => {
+    const n = parseInt(inp.value, 10);
+    if (Number.isInteger(n) && state.catById.has(n)) setActiveCat(n);
+  });
+  inp.addEventListener("blur", () => { inp.value = ""; });
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { inp.blur(); e.preventDefault(); }
+  });
 }
 
 // ---------- mutations ----------
@@ -1446,6 +1470,19 @@ function renderLifeBar() {
     ` ${adult} ${childPct}%, ${adult} ${retirePct}%,` +
     ` ${retirement} ${retirePct}%, ${retirement} 100%)`;
 
+  // Paint the fill with the same phase boundaries (in saturated form) and
+  // scale the gradient up so the stops line up with the full track. The
+  // visible fill then shows just the prefix of that gradient.
+  const f = LIFE_PHASE_FILL_COLORS;
+  fill.style.background =
+    `linear-gradient(90deg,` +
+    ` ${f.childhood} 0%, ${f.childhood} ${childPct}%,` +
+    ` ${f.adult} ${childPct}%, ${f.adult} ${retirePct}%,` +
+    ` ${f.retirement} ${retirePct}%, ${f.retirement} 100%)`;
+  fill.style.backgroundSize = pct > 0 ? `${(100 / pct) * 100}% 100%` : "100% 100%";
+  fill.style.backgroundPosition = "0 0";
+  fill.style.boxShadow = "none"; // green accent shadow would muddy the amber
+
   const fmt = (n) => n.toLocaleString("sv-SE");
   fill.style.width = pct.toFixed(3) + "%";
   label.textContent = `Week ${fmt(w)} / ${fmt(LIFE_TOTAL_WEEKS)}`;
@@ -1462,6 +1499,17 @@ function renderLifeBar() {
     `Phases: childhood 0–${LIFE_PHASES.childhoodEndAge}, ` +
     `retirement ${LIFE_PHASES.retirementStartAge}+. ` +
     `Currently: ${phase}.`;
+
+  // Decade age markers (10, 20, …) — thin slivers laid over the track.
+  track.querySelectorAll(".life-bar-tick").forEach((t) => t.remove());
+  const lifespanYears = LIFE_TOTAL_WEEKS / weeksPerYear;
+  for (let age = 10; age < lifespanYears; age += 10) {
+    const left = (age * weeksPerYear / LIFE_TOTAL_WEEKS) * 100;
+    const tick = document.createElement("span");
+    tick.className = "life-bar-tick";
+    tick.style.left = left.toFixed(3) + "%";
+    track.appendChild(tick);
+  }
 }
 
 async function boot() {
@@ -1483,6 +1531,7 @@ async function boot() {
   }
   wirePaint();
   wireKeyboard();
+  wireMobileCatInput();
   wireDateNav();
   wireSync();
   wireStats();
