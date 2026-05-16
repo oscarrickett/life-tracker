@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.2.9";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -397,6 +397,7 @@ function styleRowRuns(iso) {
       const cell = state.cellEls.get(`${iso}#${i}`);
       if (cell) {
         cell.classList.add("empty");
+        cell.classList.remove("run-not-first", "run-not-last");
         cell.style.background = "";
         cell.style.backgroundSize = "";
         cell.style.backgroundPosition = "";
@@ -421,6 +422,8 @@ function styleRowRuns(iso) {
       if (!cell) continue;
       cell.classList.remove("empty");
       cell.classList.toggle("has-icon", !!icon);
+      cell.classList.toggle("run-not-first", k > i);
+      cell.classList.toggle("run-not-last", k < j - 1);
       cell.textContent = icon || String(v);
       cell.title = label;
       cell.style.color = fg;
@@ -428,7 +431,6 @@ function styleRowRuns(iso) {
       cell.style.backgroundSize = "2400% 100%";
       cell.style.backgroundPosition = `${(k / 23) * 100}% 0`;
       cell.style.backgroundRepeat = "no-repeat";
-      cell.style.borderLeftColor = k === i ? "" : "transparent";
     }
     i = j;
   }

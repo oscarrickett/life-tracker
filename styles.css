@@ -283,10 +283,12 @@ body.demo-mode .brand .word {
 
 /* ---- hour column header ---- */
 .hour-header {
+  --col-gap: 3px;
   grid-area: hours;
   display: grid;
   grid-template-columns:
     var(--date-w) var(--day-w) repeat(24, minmax(var(--hour-w), 1fr)) var(--notes-w);
+  column-gap: var(--col-gap);
   align-items: center;
   background: rgba(10, 12, 18, 0.55);
   backdrop-filter: saturate(150%) blur(10px);
@@ -350,9 +352,11 @@ body.demo-mode .brand .word {
 
 /* ---- rows ---- */
 .row {
+  --col-gap: 3px;
   display: grid;
   grid-template-columns:
     var(--date-w) var(--day-w) repeat(24, minmax(var(--hour-w), 1fr)) var(--notes-w);
+  column-gap: var(--col-gap);
   align-items: stretch;
   height: var(--row-h);
   border-bottom: 1px solid rgba(255,255,255,0.03);
@@ -386,12 +390,13 @@ body.demo-mode .brand .word {
 .row.is-weekend .day { color: #cdb78a; }
 
 .cell {
-  /* Each cell reads as a small tile: a 1.5px transparent inset border on
-     all sides clips the painted background away from the grid track
-     edges, so adjacent cells get a ~3px visible gap between them. The
-     grid track widths are unchanged because box-sizing is border-box. */
-  border: 1.5px solid transparent;
-  border-radius: 4px;
+  /* Vertical inset only — horizontal gaps come from the row's column-gap
+     so every column transition (including first-hour↔day and
+     last-hour↔notes) is the same width and the outer cells don't look
+     shaved compared to the middle ones. */
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  border-radius: 5px;
   background-clip: padding-box;
   cursor: crosshair;
   position: relative;
@@ -405,6 +410,19 @@ body.demo-mode .brand .word {
 }
 .cell.empty { background: transparent; color: transparent; }
 .cell.has-icon { font-size: 6px; line-height: 1; font-style: italic; letter-spacing: -0.5px; }
+
+/* Runs of the same category merge into a continuous bar — cells past the
+   first one pull left by --col-gap so they meet the previous cell exactly,
+   and inner corners square off so the seam is invisible. */
+.cell.run-not-first {
+  margin-left: calc(-1 * var(--col-gap, 6px));
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cell.run-not-last {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
 
 .row .notes {
   display: flex; align-items: center;
@@ -995,6 +1013,10 @@ dialog details.advanced > .row { margin-top: 8px; }
   .hour-header,
   .row {
     grid-template-columns: var(--day-w) repeat(24, 1fr);
+    /* Tighter on mobile — cells are only ~14px wide so we can't afford a
+       big gap between each one. --col-gap drives both column-gap and the
+       run-merge offset. */
+    --col-gap: 1px;
   }
   .hour-header .h-date,
   .hour-header .h-notes,
