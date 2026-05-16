@@ -189,35 +189,6 @@ body.demo-mode .brand .word {
 
 .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
-.active-cat {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 10px;
-  min-width: 0;
-  flex: 0 1 170px;
-  overflow: hidden;
-  transition: border-color 0.15s;
-}
-.active-cat .label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.active-cat.has-cat { border-color: var(--border-hi); }
-.active-cat .swatch {
-  width: 14px; height: 14px; border-radius: 4px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--border);
-}
-.active-cat .label { color: var(--muted); font-size: 12px; }
-.active-cat.has-cat .label { color: var(--text); font-weight: 500; }
-
 .save-indicator {
   display: inline-flex;
   align-items: center;
@@ -477,11 +448,12 @@ body.demo-mode .brand .word {
   flex: 1;
 }
 .cat {
+  position: relative;
   display: grid;
   grid-template-columns: 22px 16px 1fr;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
+  padding: 6px 10px 6px 14px;
   border-radius: 8px;
   cursor: pointer;
   border: 1px solid transparent;
@@ -489,11 +461,27 @@ body.demo-mode .brand .word {
 }
 .cat:hover { background: var(--surface-2); }
 .cat[aria-pressed="true"] {
-  background: rgba(0,200,150,0.12);
-  border-color: rgba(0,200,150,0.45);
-  box-shadow: 0 0 0 1px rgba(0,200,150,0.2), 0 4px 12px rgba(0,200,150,0.15);
+  background: rgba(0, 200, 150, 0.20);
+  border-color: rgba(0, 200, 150, 0.65);
+  box-shadow:
+    0 0 0 1px rgba(0, 200, 150, 0.35),
+    0 6px 18px rgba(0, 200, 150, 0.22);
 }
-.cat[aria-pressed="true"] .name { color: var(--text); font-weight: 600; }
+/* Left-edge accent stripe makes the selected row read at a glance, even
+   when the swatch color happens to be close to the accent green. */
+.cat[aria-pressed="true"]::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent-grad);
+  box-shadow: 0 0 8px rgba(0, 200, 150, 0.55);
+}
+.cat[aria-pressed="true"] .id { color: var(--text); }
+.cat[aria-pressed="true"] .name { color: var(--text); font-weight: 700; }
 .cat .id {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -508,18 +496,6 @@ body.demo-mode .brand .word {
   text-overflow: ellipsis;
   color: var(--text-soft);
 }
-.palette > footer { color: var(--muted); font-size: 11px; line-height: 1.7; padding: 0 4px; }
-kbd {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 0 5px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 10px;
-  color: var(--text-soft);
-}
-
 /* ---- dialog ---- */
 dialog {
   background: rgba(15, 18, 22, 0.96);
@@ -987,10 +963,6 @@ dialog details.advanced > .row { margin-top: 8px; }
       "years";
   }
   .palette { display: none; }
-  /* Mobile is a read-only view — no category picker, no current-category
-     chip. Hours can't be assigned without a category, so there's nothing
-     to interact with here. */
-  .active-cat { display: none; }
   .life-bar { padding: 0 10px; gap: 8px; }
   /* Topbar wraps instead of clipping — Stats / Sign-in roll under to a 2nd
      line on narrow screens instead of getting cut off at the right edge. */

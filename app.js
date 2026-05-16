@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.2";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -550,13 +550,9 @@ function renderPalette() {
 }
 
 function renderActiveCat() {
-  const wrap = document.getElementById("active-cat");
-  const cat = state.activeCat != null ? state.catById.get(state.activeCat) : null;
-  wrap.classList.toggle("has-cat", !!cat);
-  wrap.querySelector(".swatch").style.background = cat ? gradientFor(cat.color) : "";
-  wrap.querySelector(".label").textContent = cat
-    ? `${cat.id} · ${cat.name}`
-    : "no category selected";
+  // The topbar chip was removed — the active category is now indicated by
+  // the highlighted row in the palette. Kept as a no-op shim because
+  // setActiveCat still calls this; cheaper than scrubbing every call site.
 }
 
 function setActiveCat(id) {
