@@ -5,7 +5,21 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.4";
+const APP_VERSION = "1.1.6";
+
+// "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
+// the slim progress bar under the topbar.
+const DOB = "1992-02-21";
+const LIFE_TOTAL_WEEKS = 4000;
+const LIFE_PHASES = {
+  childhoodEndAge: 21,    // 0–21: childhood through university
+  retirementStartAge: 67, // 67+: retirement
+};
+const LIFE_PHASE_COLORS = {
+  childhood:  "rgba(192, 154, 53, 0.22)",  // warm amber
+  adult:      "rgba(255, 255, 255, 0.06)", // neutral
+  retirement: "rgba(176,  72, 160, 0.22)", // plum
+};
 
 import {
   cloudConfigured, getSession, onAuthChange,
@@ -162,7 +176,7 @@ async function maybeSeed(db) {
 }
 
 // ---------- demo mode ----------
-// Click the "OSCAR" word in the header to swap in synthetic data for
+// Click the "Oscar" word in the header to swap in synthetic data for
 // showing the app to people without exposing real life. Demo edits are
 // in-memory only — scheduleSave / cloud sync are gated by demoActive so
 // nothing leaks into IndexedDB or Supabase.
@@ -253,9 +267,9 @@ function setDemoMode(on, { persist = true } = {}) {
   demoActive = on;
   if (persist) localStorage.setItem(DEMO_LS_KEY, on ? "1" : "0");
   document.body.classList.toggle("demo-mode", on);
-  document.title = on ? "DEMO — Life Tracker" : "OSCAR — Life Tracker";
+  document.title = on ? "DEMO — Life Tracker" : "Oscar — Life Tracker";
   const word = document.querySelector(".brand .word");
-  if (word) word.textContent = on ? "DEMO" : "OSCAR";
+  if (word) word.textContent = on ? "DEMO" : "Oscar";
 
   if (on) {
     realDaysSnapshot = state.daysByIso;
@@ -570,6 +584,16 @@ const cloudState = {
 // regardless of whether a push is currently in flight.
 const cloudPending = new Set();
 let flushInflight = false;
+// Epoch ms until which the indicator should flash "saved ✓". Set when a
+// flush actually pushed something and ended with nothing left to upload.
+let savedFlashUntil = 0;
+let savedFlashTimer = null;
+function flashSaved(ms = 1800) {
+  savedFlashUntil = Date.now() + ms;
+  clearTimeout(savedFlashTimer);
+  savedFlashTimer = setTimeout(refreshSaveIndicator, ms + 50);
+  refreshSaveIndicator();
+}
 async function persistPending() {
   if (!state.db) return;
   try { await setMeta(state.db, "pending_push", [...cloudPending]); }
@@ -592,7 +616,7 @@ function setSaveStatus(s) {
 function refreshSaveIndicator() {
   const el = document.getElementById("save-indicator");
   if (!el) return;
-  el.classList.remove("saving", "error", "uploading", "ok-local", "ok-cloud");
+  el.classList.remove("saving", "error", "uploading", "ok-local", "ok-cloud", "just-saved");
   const lbl = el.querySelector(".lbl");
 
   // Nothing to indicate when signed out — the grid is empty and edits are
@@ -628,6 +652,12 @@ function refreshSaveIndicator() {
       el.classList.add("uploading");
       if (lbl) lbl.textContent = "uploading…";
       el.title = `${cloudPending.size} change(s) waiting to upload to cloud`;
+      return;
+    }
+    if (savedFlashUntil > Date.now()) {
+      el.classList.add("ok-cloud", "just-saved");
+      if (lbl) lbl.textContent = "saved ✓";
+      el.title = "Your change is safe in Supabase.";
       return;
     }
     if (cloudState.lastSyncAt) {
@@ -698,6 +728,7 @@ async function flushPending() {
   if (flushInflight) return;
   if (cloudPending.size === 0) return;
   flushInflight = true;
+  let pushed = 0;
   try {
     for (const id of [...cloudPending]) {
       const d = state.daysByIso.get(id);
@@ -705,6 +736,7 @@ async function flushPending() {
       try {
         await pushDay(state.userId, d);
         await markSynced(id);
+        pushed++;
         cloudState.lastSyncAt = Date.now();
         cloudState.hasError = false;
         if (d.updated_at && (!cloudState.maxUpdatedAt || d.updated_at > cloudState.maxUpdatedAt)) {
@@ -720,7 +752,13 @@ async function flushPending() {
     }
   } finally {
     flushInflight = false;
-    refreshSaveIndicator();
+    // Flash "saved ✓" only when this flush actually drained the queue —
+    // not when it was a no-op or stopped mid-way on error.
+    if (pushed > 0 && cloudPending.size === 0 && !cloudState.hasError) {
+      flashSaved();
+    } else {
+      refreshSaveIndicator();
+    }
   }
 }
 
@@ -1384,9 +1422,52 @@ async function reload() {
   scrollToIso(todayISO());
 }
 
+function renderLifeBar() {
+  const fill = document.getElementById("life-bar-fill");
+  const label = document.getElementById("life-bar-label");
+  const end = document.getElementById("life-bar-end");
+  const wrap = document.getElementById("life-bar");
+  const track = wrap?.querySelector(".life-bar-track");
+  if (!fill || !label || !end || !wrap || !track) return;
+  const dob = isoToDate(DOB);
+  const ms = Date.now() - dob.getTime();
+  const weeksLived = ms / (1000 * 60 * 60 * 24 * 7);
+  const pct = Math.max(0, Math.min(100, (weeksLived / LIFE_TOTAL_WEEKS) * 100));
+  const w = Math.floor(weeksLived);
+
+  // Map age boundaries onto the 4000-week bar (4000 wk ≈ 76.66 yr).
+  const weeksPerYear = 365.25 / 7;
+  const childPct = (LIFE_PHASES.childhoodEndAge * weeksPerYear / LIFE_TOTAL_WEEKS) * 100;
+  const retirePct = (LIFE_PHASES.retirementStartAge * weeksPerYear / LIFE_TOTAL_WEEKS) * 100;
+  const { childhood, adult, retirement } = LIFE_PHASE_COLORS;
+  track.style.background =
+    `linear-gradient(90deg,` +
+    ` ${childhood} 0%, ${childhood} ${childPct}%,` +
+    ` ${adult} ${childPct}%, ${adult} ${retirePct}%,` +
+    ` ${retirement} ${retirePct}%, ${retirement} 100%)`;
+
+  const fmt = (n) => n.toLocaleString("sv-SE");
+  fill.style.width = pct.toFixed(3) + "%";
+  label.textContent = `Week ${fmt(w)} / ${fmt(LIFE_TOTAL_WEEKS)}`;
+  end.textContent = pct.toFixed(1).replace(".", ",") + "%";
+  const remaining = LIFE_TOTAL_WEEKS - w;
+  const ageYears = (weeksLived * 7) / 365.25;
+  const phase =
+    ageYears < LIFE_PHASES.childhoodEndAge ? "childhood"
+    : ageYears < LIFE_PHASES.retirementStartAge ? "adult"
+    : "retirement";
+  wrap.title =
+    `Four Thousand Weeks — ${fmt(w)} lived, ${fmt(remaining)} remaining ` +
+    `(${pct.toFixed(2)}%). Born ${DOB}. ` +
+    `Phases: childhood 0–${LIFE_PHASES.childhoodEndAge}, ` +
+    `retirement ${LIFE_PHASES.retirementStartAge}+. ` +
+    `Currently: ${phase}.`;
+}
+
 async function boot() {
   const vEl = document.getElementById("app-version");
   if (vEl) vEl.textContent = `v${APP_VERSION}`;
+  renderLifeBar();
   state.db = await openDB();
   await maybeSeed(state.db);
   await reload();

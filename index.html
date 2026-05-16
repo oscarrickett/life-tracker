@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="theme-color" content="#0a0d0c" />
-    <title>OSCAR — Life Tracker</title>
+    <title>Oscar — Life Tracker</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
@@ -16,7 +16,7 @@
   <body>
     <header class="topbar">
       <h1 class="brand">
-        <span class="word">OSCAR</span>
+        <span class="word">Oscar</span>
         <span class="dot"></span>
         <span class="tagline">Life Tracker</span>
         <span class="version" id="app-version" title="App version"></span>
@@ -36,6 +36,12 @@
         <button class="btn" id="btn-sync">Sign in</button>
       </div>
     </header>
+
+    <div class="life-bar" id="life-bar" title="">
+      <span class="life-bar-label" id="life-bar-label">Week</span>
+      <span class="life-bar-track"><span class="life-bar-fill" id="life-bar-fill"></span></span>
+      <span class="life-bar-end" id="life-bar-end"></span>
+    </div>
 
     <div class="hour-header" id="hour-header"><!-- column headers --></div>
 

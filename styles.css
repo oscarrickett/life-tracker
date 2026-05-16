@@ -31,6 +31,7 @@
   --notes-w: clamp(150px, 14vw, 280px);
   --side-w: clamp(200px, 16vw, 260px);
   --top-h: 56px;
+  --life-h: 22px;
   --hours-h: 26px;
   color-scheme: dark;
 }
@@ -54,11 +55,12 @@ body {
 
   display: grid;
   grid-template-columns: 1fr var(--side-w);
-  grid-template-rows: var(--top-h) var(--hours-h) 1fr;
+  grid-template-rows: var(--top-h) var(--life-h) var(--hours-h) 1fr;
   grid-template-areas:
-    "topbar topbar"
-    "hours  palette"
-    "years  palette";
+    "topbar  topbar"
+    "lifebar lifebar"
+    "hours   palette"
+    "years   palette";
   height: 100vh;
 }
 ::selection { background: rgba(0,200,150,0.35); color: #fff; }
@@ -238,6 +240,65 @@ body.demo-mode .brand .word {
 .save-indicator.error .dot { background: var(--red); box-shadow: 0 0 10px var(--red); }
 .save-indicator.ok-cloud .dot { background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2); }
 @keyframes savePulse { 50% { opacity: 0.45; } }
+/* "saved ✓" flash — brief confirmation after a successful cloud push,
+   before the indicator settles into "synced HH:MM". */
+.save-indicator.just-saved .dot { animation: saveFlashDot 1.6s ease-out; }
+.save-indicator.just-saved .lbl { color: var(--accent-2); font-weight: 600; animation: saveFlashLbl 1.6s ease-out; }
+@keyframes saveFlashDot {
+  0%   { transform: scale(1);   box-shadow: 0 0 10px var(--accent-2); }
+  20%  { transform: scale(1.6); box-shadow: 0 0 18px var(--accent-2); }
+  100% { transform: scale(1);   box-shadow: 0 0 10px var(--accent-2); }
+}
+@keyframes saveFlashLbl {
+  0%   { opacity: 0; transform: translateY(2px); }
+  25%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; }
+}
+
+/* ---- life-progress bar (4000 weeks) ---- */
+.life-bar {
+  grid-area: lifebar;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  background: rgba(10, 12, 18, 0.45);
+  backdrop-filter: saturate(150%) blur(10px);
+  -webkit-backdrop-filter: saturate(150%) blur(10px);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.life-bar-label {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+}
+.life-bar-track {
+  flex: 1;
+  height: 4px;
+  min-width: 80px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.life-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent-grad);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(0, 200, 150, 0.45);
+  transition: width 0.6s ease;
+}
+.life-bar-end {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+}
 
 /* ---- hour column header ---- */
 .hour-header {
@@ -924,13 +985,15 @@ dialog details.advanced > .row { margin-top: 8px; }
   :root { --hour-w: 22px; --row-h: 26px; --notes-w: 140px; --side-w: 0; }
   body {
     grid-template-columns: 1fr;
-    grid-template-rows: var(--top-h) var(--hours-h) 1fr auto;
+    grid-template-rows: var(--top-h) var(--life-h) var(--hours-h) 1fr auto;
     grid-template-areas:
       "topbar"
+      "lifebar"
       "hours"
       "years"
       "palette";
   }
+  .life-bar { padding: 0 10px; gap: 8px; }
   .topbar { gap: 8px; padding: 0 10px; overflow-x: auto; }
   .topbar .brand .tagline { display: none; }
   .topbar .brand .word { font-size: 18px; }
