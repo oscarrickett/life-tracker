@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.1.3";
+const APP_VERSION = "1.1.4";
 
 import {
   cloudConfigured, getSession, onAuthChange,
@@ -559,11 +559,24 @@ let saveTimer = null;
 const dirty = new Set();
 
 const cloudState = {
-  pending: 0,            // in-flight cloud pushes
   lastSyncAt: null,      // ms epoch of last successful cloud push or pull
   hasError: false,       // last cloud op errored
   maxUpdatedAt: null,    // ISO of max updated_at seen — drives delta pulls
 };
+
+// ISOs whose latest local edit hasn't been confirmed by the cloud yet.
+// Persisted to IndexedDB ("pending_push") so a tab closed mid-upload still
+// retries on next boot. The indicator reads .size as "needs uploading"
+// regardless of whether a push is currently in flight.
+const cloudPending = new Set();
+let flushInflight = false;
+async function persistPending() {
+  if (!state.db) return;
+  try { await setMeta(state.db, "pending_push", [...cloudPending]); }
+  catch (e) { console.warn("persist pending_push", e); }
+}
+async function markPending(iso) { cloudPending.add(iso); await persistPending(); }
+async function markSynced(iso) { cloudPending.delete(iso); await persistPending(); }
 
 function fmtClock(d) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -611,10 +624,10 @@ function refreshSaveIndicator() {
     return;
   }
   if (signedIn) {
-    if (cloudState.pending > 0) {
+    if (cloudPending.size > 0) {
       el.classList.add("uploading");
       if (lbl) lbl.textContent = "uploading…";
-      el.title = `${cloudState.pending} change(s) uploading to cloud`;
+      el.title = `${cloudPending.size} change(s) waiting to upload to cloud`;
       return;
     }
     if (cloudState.lastSyncAt) {
@@ -633,7 +646,7 @@ function refreshSaveIndicator() {
 
 // Tick the clock label every minute so "synced 14:23" stays current as time passes.
 setInterval(() => {
-  if (localPhase === "idle" && cloudState.pending === 0 && !cloudState.hasError) {
+  if (localPhase === "idle" && cloudPending.size === 0 && !cloudState.hasError) {
     refreshSaveIndicator();
   }
 }, 30_000);
@@ -663,32 +676,52 @@ function scheduleSave(iso) {
       setSaveStatus("error");
       return;
     }
-    // Best-effort cloud push; failures retry on next save.
+    // Best-effort cloud push. Anything that fails (or times out) stays in
+    // cloudPending and gets retried by flushPending() on focus / 60s tick.
     if (state.userId) {
       for (const id of isos) {
         const d = state.daysByIso.get(id);
         if (!d) continue;
-        cloudState.pending++;
+        await markPending(id);
         refreshSaveIndicator();
-        pushDay(state.userId, d)
-          .then(() => {
-            cloudState.lastSyncAt = Date.now();
-            cloudState.hasError = false;
-            if (d.updated_at && (!cloudState.maxUpdatedAt || d.updated_at > cloudState.maxUpdatedAt)) {
-              cloudState.maxUpdatedAt = d.updated_at;
-            }
-          })
-          .catch((e) => {
-            cloudState.hasError = true;
-            console.warn("push", id, e);
-          })
-          .finally(() => {
-            cloudState.pending--;
-            refreshSaveIndicator();
-          });
       }
+      flushPending();
     }
   }, 250);
+}
+
+// Re-push every iso still in cloudPending. Called from scheduleSave, on
+// window focus, and from the 60s background tick. Single-flighted so
+// overlapping triggers don't pile on duplicate requests.
+async function flushPending() {
+  if (!state.userId || demoActive) return;
+  if (flushInflight) return;
+  if (cloudPending.size === 0) return;
+  flushInflight = true;
+  try {
+    for (const id of [...cloudPending]) {
+      const d = state.daysByIso.get(id);
+      if (!d) { await markSynced(id); continue; }
+      try {
+        await pushDay(state.userId, d);
+        await markSynced(id);
+        cloudState.lastSyncAt = Date.now();
+        cloudState.hasError = false;
+        if (d.updated_at && (!cloudState.maxUpdatedAt || d.updated_at > cloudState.maxUpdatedAt)) {
+          cloudState.maxUpdatedAt = d.updated_at;
+        }
+      } catch (e) {
+        cloudState.hasError = true;
+        console.warn("push", id, e);
+        break; // stop on first failure; next tick will retry the rest
+      } finally {
+        refreshSaveIndicator();
+      }
+    }
+  } finally {
+    flushInflight = false;
+    refreshSaveIndicator();
+  }
 }
 
 function applyHour(iso, h, catId) {
@@ -1235,6 +1268,7 @@ function startBackgroundRefresh() {
   bgRefreshTimer = setInterval(() => {
     if (document.visibilityState === "visible" && state.userId) {
       refreshFromCloud(true);
+      flushPending();
     }
   }, 60_000);
 }
@@ -1244,10 +1278,11 @@ function stopBackgroundRefresh() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.userId) {
     refreshFromCloud(true);
+    flushPending();
   }
 });
 window.addEventListener("focus", () => {
-  if (state.userId) refreshFromCloud(true);
+  if (state.userId) { refreshFromCloud(true); flushPending(); }
 });
 
 async function initCloud() {
@@ -1264,6 +1299,7 @@ async function initCloud() {
     updateAccountUI();
     refreshSaveIndicator();
     await reconcileWithCloud();
+    flushPending();
     startBackgroundRefresh();
   } else {
     updateAccountUI();
@@ -1276,6 +1312,7 @@ async function initCloud() {
       updateAccountUI();
       refreshSaveIndicator();
       await reconcileWithCloud();
+      flushPending();
       startBackgroundRefresh();
     } else {
       state.userId = null;
@@ -1283,6 +1320,8 @@ async function initCloud() {
       cloudState.lastSyncAt = null;
       cloudState.hasError = false;
       cloudState.maxUpdatedAt = null;
+      cloudPending.clear();
+      await persistPending();
       stopBackgroundRefresh();
       state.daysByIso = new Map();
       renderYears();
@@ -1332,8 +1371,12 @@ async function reload() {
   if (session) {
     const days = await getAllDays(state.db);
     state.daysByIso = new Map(days.map((d) => [d.date, d]));
+    cloudPending.clear();
+    const persisted = await getMeta(state.db, "pending_push");
+    if (Array.isArray(persisted)) persisted.forEach((iso) => cloudPending.add(iso));
   } else {
     state.daysByIso = new Map();
+    cloudPending.clear();
   }
   renderHourHeader();
   renderYears();
