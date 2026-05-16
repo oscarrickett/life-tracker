@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.2.2";
+const APP_VERSION = "1.2.3";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.

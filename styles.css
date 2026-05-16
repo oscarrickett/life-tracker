@@ -386,7 +386,13 @@ body.demo-mode .brand .word {
 .row.is-weekend .day { color: #cdb78a; }
 
 .cell {
-  border-left: 1px solid rgba(255,255,255,0.04);
+  /* Each cell reads as a small tile: a 1.5px transparent inset border on
+     all sides clips the painted background away from the grid track
+     edges, so adjacent cells get a ~3px visible gap between them. The
+     grid track widths are unchanged because box-sizing is border-box. */
+  border: 1.5px solid transparent;
+  border-radius: 4px;
+  background-clip: padding-box;
   cursor: crosshair;
   position: relative;
   display: flex;
@@ -995,7 +1001,7 @@ dialog details.advanced > .row { margin-top: 8px; }
   .row .date,
   .row .notes { display: none; }
   .hour-header .h-hour { font-size: 9px; }
-  .cell { font-size: 7px; border-left-color: rgba(255, 255, 255, 0.06); }
+  .cell { font-size: 7px; }
 }
 @media (max-width: 420px) {
   .topbar .brand { display: none; }
