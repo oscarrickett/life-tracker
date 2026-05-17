@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.3.7";
+const APP_VERSION = "1.4.0";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -36,6 +36,7 @@ const {
   cloudConfigured, getSession, onAuthChange,
   signInWithProvider, signOut,
   pullDays, pushDay, pushDays,
+  pullCategories, pushCategory, pushCategories,
 } = await import(`./sync.js${BUST}`);
 
 // Unified palette — same hue family as the original xlsx, but consistent
@@ -655,8 +656,10 @@ async function commitNameEdit(catId, newName) {
   const cat = state.catById.get(catId);
   if (!cat || !newName || newName === cat.name) return;
   cat.name = newName;
+  cat.updated_at = new Date().toISOString();
   await persistCategory(cat);
   repaintCategoryUsage(catId);
+  if (state.userId) pushCategoryToCloud(cat);
 }
 
 async function commitColorEdit(catId, newColor) {
@@ -664,22 +667,26 @@ async function commitColorEdit(catId, newColor) {
   const cat = state.catById.get(catId);
   if (!cat || !newColor || newColor === cat.color) return;
   cat.color = newColor;
+  cat.updated_at = new Date().toISOString();
   state.catById.set(catId, cat);
   const idx = state.categories.findIndex((c) => c.id === catId);
   if (idx >= 0) state.categories[idx] = cat;
   repaintCategoryUsage(catId);
   try { await bulkPut(state.db, "categories", [cat]); }
   catch (e) { console.error("save category", e); }
+  if (state.userId) pushCategoryToCloud(cat);
 }
 
 async function resetPaletteColors() {
   if (demoActive) return;
   if (!confirm("Reset all category colors to defaults?")) return;
   const updated = [];
+  const now = new Date().toISOString();
   for (const c of state.categories) {
     const def = colorFor(c.id);
     if (c.color !== def) {
       c.color = def;
+      c.updated_at = now;
       state.catById.set(c.id, c);
       updated.push(c);
     }
@@ -691,6 +698,84 @@ async function resetPaletteColors() {
   const updatedIds = new Set(updated.map((c) => c.id));
   for (const [iso, day] of state.daysByIso) {
     if (day.hours?.some((h) => updatedIds.has(h))) styleRowRuns(iso);
+  }
+  if (state.userId && !demoActive) {
+    try { await pushCategories(state.userId, updated); }
+    catch (e) { console.warn("push reset colors", e); }
+  }
+}
+
+// Fire-and-forget cloud push for a single category. Errors are logged but
+// don't surface — the local change is already persisted, and the next
+// reconcileCategoriesWithCloud will re-push anything newer than remote.
+async function pushCategoryToCloud(cat) {
+  if (demoActive || !state.userId) return;
+  try { await pushCategory(state.userId, cat); }
+  catch (e) { console.warn("push category", cat.id, e); }
+}
+
+// On sign-in: pull the user's category overrides from Supabase. First-time
+// users have no rows yet — push the local defaults (from seed.json) so the
+// cloud has a baseline they can edit from any device.
+async function reconcileCategoriesWithCloud() {
+  if (!state.userId || demoActive) return;
+  let remote;
+  try { remote = await pullCategories(); }
+  catch (e) { console.warn("pullCategories", e); return; }
+
+  if (remote.length === 0) {
+    if (state.categories.length) {
+      try { await pushCategories(state.userId, state.categories); }
+      catch (e) { console.warn("seed categories to cloud", e); }
+    }
+    return;
+  }
+
+  const byId = new Map(remote.map((r) => [r.id, r]));
+  const toPush = [];
+  let changed = false;
+
+  for (const local of state.categories) {
+    const r = byId.get(local.id);
+    if (!r) { toPush.push(local); continue; }
+    const localT = Date.parse(local.updated_at || 0) || 0;
+    const remoteT = Date.parse(r.updated_at) || 0;
+    if (remoteT > localT) {
+      local.name = r.name || local.name;
+      local.color = r.color || local.color;
+      local.updated_at = r.updated_at;
+      state.catById.set(local.id, local);
+      changed = true;
+    } else if (localT > remoteT) {
+      toPush.push(local);
+    }
+  }
+  // Categories that exist only in the cloud — covers future "Add category"
+  // support and devices that haven't run maybeSeed yet for new defaults.
+  for (const r of remote) {
+    if (state.catById.has(r.id)) continue;
+    const cat = {
+      id: r.id,
+      name: r.name,
+      color: r.color || colorFor(r.id),
+      updated_at: r.updated_at,
+    };
+    state.categories.push(cat);
+    state.catById.set(cat.id, cat);
+    changed = true;
+  }
+
+  if (changed) {
+    state.categories.sort((a, b) => a.id - b.id);
+    try { await bulkPut(state.db, "categories", state.categories); }
+    catch (e) { console.warn("save categories to IDB", e); }
+    renderPalette();
+    // Cell colors and tooltips depend on category data, so repaint everywhere.
+    for (const iso of state.daysByIso.keys()) styleRowRuns(iso);
+  }
+  if (toPush.length) {
+    try { await pushCategories(state.userId, toPush); }
+    catch (e) { console.warn("push local categories", e); }
   }
 }
 
@@ -1547,6 +1632,7 @@ async function initCloud() {
     applyBrand();
     updateAccountUI();
     refreshSaveIndicator();
+    await reconcileCategoriesWithCloud();
     await reconcileWithCloud();
     // First load may have rendered with an empty / stale IDB cache.
     // Rebuild from the just-merged state so cloud data is visible without
@@ -1568,6 +1654,7 @@ async function initCloud() {
       applyBrand();
       updateAccountUI();
       refreshSaveIndicator();
+      await reconcileCategoriesWithCloud();
       await reconcileWithCloud();
       renderYears();
       scrollToIso(todayISO());
@@ -1623,11 +1710,13 @@ async function initCloud() {
     if (!confirm("Wipe the local copy of your days and re-pull from the cloud? Unsaved edits in this tab will be lost.")) return;
     setSyncIndicator("clearing…");
     try {
-      // Wipe the days store and the pending-push queue. Categories and meta
-      // (palette config) stay — they're tiny and reloaded from seed.json
-      // on the next boot anyway.
-      const t = state.db.transaction(["days"], "readwrite");
+      // Wipe days + categories stores and the pending-push queue, then
+      // re-seed categories from seed.json and re-pull everything from
+      // Supabase. Meta (per-year overrides) stays — it's reloaded by
+      // maybeSeed anyway.
+      const t = state.db.transaction(["days", "categories"], "readwrite");
       t.objectStore("days").clear();
+      t.objectStore("categories").clear();
       await txDone(t);
       state.daysByIso = new Map();
       cloudPending.clear();
@@ -1635,7 +1724,12 @@ async function initCloud() {
       cloudState.lastSyncAt = null;
       cloudState.maxUpdatedAt = null;
       cloudState.hasError = false;
+      // Reseed the local category defaults so the palette isn't empty
+      // before the cloud reconcile completes.
+      await maybeSeed(state.db);
+      await reload();
       if (state.userId && !demoActive) {
+        await reconcileCategoriesWithCloud();
         await reconcileWithCloud();
         renderYears();
         scrollToIso(todayISO());

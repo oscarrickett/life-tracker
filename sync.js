@@ -92,3 +92,38 @@ export async function pushDay(userId, day) {
   if (error) throw error;
   day.updated_at = payload.updated_at;
 }
+
+// ---- categories ----
+export async function pullCategories() {
+  const { data, error } = await withTimeout(
+    supabase.from("categories").select("id, name, color, updated_at").order("id"),
+    "pullCategories"
+  );
+  if (error) throw error;
+  return data || [];
+}
+
+function categoryPayload(userId, cat, nowIso) {
+  return {
+    user_id: userId,
+    id: cat.id,
+    name: cat.name,
+    color: cat.color || null,
+    updated_at: nowIso,
+  };
+}
+
+export async function pushCategory(userId, cat) {
+  const payload = categoryPayload(userId, cat, new Date().toISOString());
+  const { error } = await withTimeout(supabase.from("categories").upsert(payload), "pushCategory");
+  if (error) throw error;
+  cat.updated_at = payload.updated_at;
+}
+
+export async function pushCategories(userId, cats) {
+  if (!cats.length) return;
+  const now = new Date().toISOString();
+  const rows = cats.map((c) => categoryPayload(userId, c, c.updated_at || now));
+  const { error } = await withTimeout(supabase.from("categories").upsert(rows), "pushCategories");
+  if (error) throw error;
+}
