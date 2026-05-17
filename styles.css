@@ -350,6 +350,13 @@ body.demo-mode .brand .word {
 }
 .year-select option { background: #11131a; color: var(--text); font-family: inherit; }
 
+.year-step {
+  padding: 6px 9px;
+  font-family: "Archivo Black", sans-serif;
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* ---- rows ---- */
 .row {
   --col-gap: 3px;
@@ -520,6 +527,70 @@ body.demo-mode .brand .word {
   text-overflow: ellipsis;
   color: var(--text-soft);
 }
+/* Rename input shown only while the palette is in edit mode. Styled to
+   feel continuous with the palette, with enough chrome to read as editable. */
+.cat .name-edit {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 200, 150, 0.18);
+}
+
+/* Palette header — "Categories" label and the Edit/Done toggle. */
+.palette-edit-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 9px;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.palette-edit-btn:hover { background: var(--surface-hi); border-color: var(--border-hi); color: var(--text); }
+body.palette-editing #palette-edit-btn {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #0a0a0f;
+  box-shadow: 0 0 0 1px rgba(0, 200, 150, 0.35), 0 4px 12px rgba(0, 200, 150, 0.25);
+}
+
+.palette-header-actions { display: inline-flex; gap: 6px; }
+.palette-reset-btn { display: none; }
+body.palette-editing .palette-reset-btn { display: inline-block; }
+
+/* Subtle highlight on the palette while editing so it's obvious that the
+   normal click-to-select behaviour is paused. */
+body.palette-editing .palette {
+  background: rgba(0, 200, 150, 0.05);
+}
+body.palette-editing .cat { cursor: default; }
+
+/* Native color picker styled as a small swatch so it fits the same slot
+   as the read-only .swatch span. The vendor pseudo-elements strip the
+   default chrome so just the color shows through a rounded border. */
+.cat .swatch-edit {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border-hi);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.cat .swatch-edit::-webkit-color-swatch-wrapper { padding: 0; }
+.cat .swatch-edit::-webkit-color-swatch { border: none; border-radius: 3px; }
+.cat .swatch-edit::-moz-color-swatch { border: none; border-radius: 3px; }
 /* ---- dialog ---- */
 dialog {
   background: rgba(15, 18, 22, 0.96);
@@ -606,6 +677,38 @@ dialog .text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rg
   min-height: 0;
 }
 #stats-dialog menu { margin-top: 16px; }
+
+/* Floating close button — only shown on phones, where the regular Close
+   button at the bottom of the form scrolls out of reach. Position:fixed
+   pins it to the viewport so it stays visible no matter how far the user
+   has scrolled through the stats. */
+.dialog-close-fab {
+  display: none;
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 18, 22, 0.88);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-hi);
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  z-index: 10;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+@media (max-width: 760px) {
+  .dialog-close-fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
 .stats-subtitle {
   margin: 0 2px 14px;
   font-size: 12px;
@@ -772,6 +875,57 @@ select option {
 .stats-pie svg path { transition: filter 0.15s, opacity 0.15s; }
 .stats-pie svg:hover path { opacity: 0.55; }
 .stats-pie svg:hover path:hover { opacity: 1; filter: brightness(1.1); }
+
+/* Inner wrap is the positioned ancestor for the custom tooltip — needs to
+   be relative so .pie-tooltip's absolute coordinates make sense. Sized to
+   the svg so hover events outside the chart don't move the tooltip. */
+.stats-pie-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.pie-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  background: rgba(15, 18, 22, 0.96);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 5;
+}
+.pie-tooltip.visible { opacity: 1; transform: translateY(0); }
+.pie-tip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.pie-tip-label {
+  font-weight: 600;
+  color: var(--text);
+}
+.pie-tip-value {
+  grid-column: 1 / -1;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
 .stats-section-title {
   margin: 14px 2px 6px;
   font-family: inherit;
@@ -1026,8 +1180,11 @@ dialog details.advanced > .row { margin-top: 8px; }
   .cell { font-size: 7px; }
 }
 @media (max-width: 420px) {
-  .topbar .brand { display: none; }
-  .datebar .btn { display: none; } /* fall back to the FAB for "Today" */
+  /* Give the brand its own row so the title stays legible on phones
+     instead of getting clipped. The topbar grows vertically rather
+     than fighting for horizontal space. */
+  .topbar { row-gap: 4px; padding-top: 8px; padding-bottom: 8px; }
+  .topbar .brand { flex-basis: 100%; }
   /* On very narrow screens, even the day-of-week label takes too much
      width — shrink it so each hour cell still gets a few pixels. */
   :root { --day-w: 28px; }

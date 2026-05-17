@@ -5,7 +5,7 @@
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.2.9";
+const APP_VERSION = "1.3.7";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -29,11 +29,14 @@ const LIFE_PHASE_FILL_COLORS = {
   retirement: "#b048a0",  // plum
 };
 
-import {
+// Dynamic import so the ?v=... cache-buster from index.html propagates
+// down the module graph (static `import` URLs ignore the parent's query).
+const BUST = new URL(import.meta.url).search;
+const {
   cloudConfigured, getSession, onAuthChange,
   signInWithProvider, signOut,
   pullDays, pushDay, pushDays,
-} from "./sync.js";
+} = await import(`./sync.js${BUST}`);
 
 // Unified palette — same hue family as the original xlsx, but consistent
 // saturation/lightness so the cells read as a set. Overrides any color
@@ -275,9 +278,7 @@ function setDemoMode(on, { persist = true } = {}) {
   demoActive = on;
   if (persist) localStorage.setItem(DEMO_LS_KEY, on ? "1" : "0");
   document.body.classList.toggle("demo-mode", on);
-  document.title = on ? "DEMO — Life Tracker" : "Oscar — Life Tracker";
-  const word = document.querySelector(".brand .word");
-  if (word) word.textContent = on ? "DEMO" : "Oscar";
+  applyBrand();
 
   if (on) {
     realDaysSnapshot = state.daysByIso;
@@ -343,7 +344,37 @@ const state = {
   paint: { active: false, button: 0 },
   userId: null,            // supabase auth user id when signed in
   userEmail: null,
+  userName: null,          // display name from OAuth metadata, used as brand
 };
+
+// Default brand word when no one is signed in — matches the static HTML.
+const DEFAULT_BRAND = "Oscar";
+
+// Pull a friendly first name out of the Supabase user record. Google OAuth
+// populates user_metadata.given_name; other providers may only give
+// full_name or name. Falls back to the local-part of the email.
+function deriveUserName(user) {
+  if (!user) return null;
+  const m = user.user_metadata || {};
+  const first = (s) => String(s).trim().split(/\s+/)[0];
+  return (
+    m.given_name ||
+    (m.name && first(m.name)) ||
+    (m.full_name && first(m.full_name)) ||
+    (user.email && user.email.split("@")[0]) ||
+    null
+  );
+}
+
+// Single source of truth for the topbar word and the tab title. Demo mode
+// wins (so the "DEMO" affordance stays obvious); otherwise it's the signed-in
+// user's first name, or the default brand when signed out.
+function applyBrand() {
+  const name = demoActive ? "DEMO" : (state.userName || DEFAULT_BRAND);
+  const word = document.querySelector(".brand .word");
+  if (word) word.textContent = name;
+  document.title = `${name} — Life Tracker`;
+}
 
 function nameFor(catId, iso) {
   const year = iso?.slice(0, 4);
@@ -479,12 +510,14 @@ function renderYears() {
   state.yearSections.clear();
 
   const allIsos = [...state.daysByIso.keys()].sort();
-  if (allIsos.length === 0) return;
-
-  const firstYear = Number(allIsos[0].slice(0, 4));
   const today = todayISO();
   const currentYear = Number(today.slice(0, 4));
-  const lastYear = Math.max(Number(allIsos[allIsos.length - 1].slice(0, 4)), currentYear);
+  const dataMin = allIsos.length ? Number(allIsos[0].slice(0, 4)) : currentYear;
+  const dataMax = allIsos.length ? Number(allIsos[allIsos.length - 1].slice(0, 4)) : currentYear;
+  const lsMin = Number(localStorage.getItem("lt.userYearMin"));
+  const lsMax = Number(localStorage.getItem("lt.userYearMax"));
+  const firstYear = Math.min(dataMin, lsMin || currentYear, currentYear);
+  const lastYear = Math.max(dataMax, lsMax || currentYear, currentYear);
 
   // dropdown lists newest year first so 2026 is on top
   for (let y = lastYear; y >= firstYear; y--) {
@@ -532,23 +565,133 @@ function activateYear(y, { scroll = true } = {}) {
   }
 }
 
+// Edit-mode flag controlled by the Edit/Done button in the palette header.
+// When true, names become editable text inputs and swatches become native
+// color pickers; row clicks no longer change the active category.
+let paletteEditing = false;
+
 function renderPalette() {
   const ul = document.getElementById("palette-list");
   ul.replaceChildren();
   for (const c of state.categories) {
+    const swatchEl = paletteEditing
+      ? el("input", {
+          type: "color",
+          class: "swatch swatch-edit",
+          value: c.color,
+          title: "Change color",
+          onchange: (e) => commitColorEdit(c.id, e.target.value),
+          onclick: (e) => e.stopPropagation(),
+        })
+      : el("span", { class: "swatch", style: `background:${gradientFor(c.color)}` });
+
+    const nameEl = paletteEditing
+      ? el("input", {
+          type: "text",
+          class: "name name-edit",
+          value: c.name,
+          "aria-label": `Rename category ${c.id}`,
+          onblur: (e) => commitNameEdit(c.id, e.target.value),
+          onkeydown: (e) => {
+            if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+            else if (e.key === "Escape") { e.preventDefault(); e.target.value = c.name; e.target.blur(); }
+          },
+          onclick: (e) => e.stopPropagation(),
+        })
+      : el("span", { class: "name", title: c.name },
+          iconFor(c.id) ? `${iconFor(c.id)} ${c.name}` : c.name);
+
     ul.append(el("li", {
       class: "cat",
       "aria-pressed": String(state.activeCat === c.id),
       dataset: { id: String(c.id) },
-      onclick: () => setActiveCat(c.id),
+      onclick: () => { if (!paletteEditing) setActiveCat(c.id); },
     },
       el("span", { class: "id" }, c.id),
-      el("span", { class: "swatch", style: `background:${gradientFor(c.color)}` }),
-      el("span", { class: "name", title: c.name },
-        iconFor(c.id) ? `${iconFor(c.id)} ${c.name}` : c.name),
+      swatchEl,
+      nameEl,
     ));
   }
   renderActiveCat();
+}
+
+function togglePaletteEdit() {
+  // Commit any in-flight edit before tearing down inputs.
+  if (paletteEditing && document.activeElement?.classList?.contains?.("name-edit")) {
+    document.activeElement.blur();
+  }
+  paletteEditing = !paletteEditing;
+  document.body.classList.toggle("palette-editing", paletteEditing);
+  const btn = document.getElementById("palette-edit-btn");
+  if (btn) {
+    btn.textContent = paletteEditing ? "Done" : "Edit";
+    btn.setAttribute("aria-pressed", String(paletteEditing));
+  }
+  renderPalette();
+}
+
+async function persistCategory(cat) {
+  state.catById.set(cat.id, cat);
+  const idx = state.categories.findIndex((c) => c.id === cat.id);
+  if (idx >= 0) state.categories[idx] = cat;
+  try {
+    await bulkPut(state.db, "categories", [cat]);
+  } catch (e) {
+    console.error("save category", e);
+  }
+}
+
+// Repaint every row that uses this category so cell colors/tooltips
+// reflect the change immediately.
+function repaintCategoryUsage(catId) {
+  for (const [iso, day] of state.daysByIso) {
+    if (day.hours?.some((h) => h === catId)) styleRowRuns(iso);
+  }
+}
+
+async function commitNameEdit(catId, newName) {
+  if (demoActive) return;
+  newName = (newName || "").trim();
+  const cat = state.catById.get(catId);
+  if (!cat || !newName || newName === cat.name) return;
+  cat.name = newName;
+  await persistCategory(cat);
+  repaintCategoryUsage(catId);
+}
+
+async function commitColorEdit(catId, newColor) {
+  if (demoActive) return;
+  const cat = state.catById.get(catId);
+  if (!cat || !newColor || newColor === cat.color) return;
+  cat.color = newColor;
+  state.catById.set(catId, cat);
+  const idx = state.categories.findIndex((c) => c.id === catId);
+  if (idx >= 0) state.categories[idx] = cat;
+  repaintCategoryUsage(catId);
+  try { await bulkPut(state.db, "categories", [cat]); }
+  catch (e) { console.error("save category", e); }
+}
+
+async function resetPaletteColors() {
+  if (demoActive) return;
+  if (!confirm("Reset all category colors to defaults?")) return;
+  const updated = [];
+  for (const c of state.categories) {
+    const def = colorFor(c.id);
+    if (c.color !== def) {
+      c.color = def;
+      state.catById.set(c.id, c);
+      updated.push(c);
+    }
+  }
+  if (!updated.length) return;
+  try { await bulkPut(state.db, "categories", updated); }
+  catch (e) { console.error("reset colors", e); }
+  renderPalette();
+  const updatedIds = new Set(updated.map((c) => c.id));
+  for (const [iso, day] of state.daysByIso) {
+    if (day.hours?.some((h) => updatedIds.has(h))) styleRowRuns(iso);
+  }
 }
 
 function renderActiveCat() {
@@ -859,6 +1002,28 @@ function wireDateNav() {
     scrollToIso(todayISO(), true));
   document.getElementById("year-select").addEventListener("change", (e) =>
     activateYear(Number(e.target.value)));
+  document.getElementById("btn-year-earlier").addEventListener("click", () =>
+    extendYearRange("earlier"));
+  document.getElementById("btn-year-later").addEventListener("click", () =>
+    extendYearRange("later"));
+}
+
+function extendYearRange(direction) {
+  const allIsos = [...state.daysByIso.keys()].sort();
+  const currentYear = Number(todayISO().slice(0, 4));
+  const dataMin = allIsos.length ? Number(allIsos[0].slice(0, 4)) : currentYear;
+  const dataMax = allIsos.length ? Number(allIsos[allIsos.length - 1].slice(0, 4)) : currentYear;
+  const lsMin = Number(localStorage.getItem("lt.userYearMin"));
+  const lsMax = Number(localStorage.getItem("lt.userYearMax"));
+  const curMin = Math.min(dataMin, lsMin || currentYear, currentYear);
+  const curMax = Math.max(dataMax, lsMax || currentYear, currentYear);
+  const target = direction === "earlier" ? curMin - 1 : curMax + 1;
+  localStorage.setItem(
+    direction === "earlier" ? "lt.userYearMin" : "lt.userYearMax",
+    String(target)
+  );
+  renderYears();
+  activateYear(target);
 }
 
 function wireSync() {
@@ -927,9 +1092,47 @@ function renderPie(segments, size = 220) {
     height: String(size),
   });
   const total = segments.reduce((s, x) => s + x.value, 0);
+
+  // Custom hover tooltip — shows immediately and styles to match the app,
+  // unlike the native <title> tooltip which has a long delay and uses the
+  // OS chrome. The <title> elements stay for screen readers + fallback.
+  const tooltip = el("div", { class: "pie-tooltip", role: "tooltip" });
+  const wrap = el("div", { class: "stats-pie-wrap" }, svg, tooltip);
+
+  const showTip = (seg) => {
+    const pct = total > 0 ? ((seg.value / total) * 100) : 0;
+    const pctText = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
+    tooltip.replaceChildren(
+      el("span", { class: "pie-tip-swatch", style: `background:${seg.color}` }),
+      el("span", { class: "pie-tip-label" }, seg.label),
+      el("span", { class: "pie-tip-value" }, `${seg.value.toLocaleString()} h · ${pctText}%`),
+    );
+    tooltip.classList.add("visible");
+  };
+  const moveTip = (e) => {
+    const rect = wrap.getBoundingClientRect();
+    // Position past the cursor; if it would overflow the wrap on the right,
+    // flip to the left of the cursor so it stays visible.
+    const pad = 14;
+    const w = tooltip.offsetWidth || 140;
+    const h = tooltip.offsetHeight || 40;
+    let x = e.clientX - rect.left + pad;
+    let y = e.clientY - rect.top + pad;
+    if (x + w > rect.width) x = e.clientX - rect.left - pad - w;
+    if (y + h > rect.height) y = e.clientY - rect.top - pad - h;
+    tooltip.style.left = Math.max(0, x) + "px";
+    tooltip.style.top = Math.max(0, y) + "px";
+  };
+  const hideTip = () => tooltip.classList.remove("visible");
+  const wireHover = (node, seg) => {
+    node.addEventListener("mouseenter", () => showTip(seg));
+    node.addEventListener("mousemove", moveTip);
+    node.addEventListener("mouseleave", hideTip);
+  };
+
   if (total === 0) {
     svg.append(svgEl("circle", { cx, cy, r, fill: "rgba(255,255,255,0.05)" }));
-    return svg;
+    return wrap;
   }
   // Single-segment case: full circle.
   if (segments.length === 1) {
@@ -938,7 +1141,8 @@ function renderPie(segments, size = 220) {
     t.textContent = `${segments[0].label} — 100%`;
     c.appendChild(t);
     svg.appendChild(c);
-    return svg;
+    wireHover(c, segments[0]);
+    return wrap;
   }
   let angle = -Math.PI / 2; // start at 12 o'clock
   for (const seg of segments) {
@@ -960,9 +1164,10 @@ function renderPie(segments, size = 220) {
     t.textContent = `${seg.label} — ${seg.value.toLocaleString()} h (${pct}%)`;
     path.appendChild(t);
     svg.appendChild(path);
+    wireHover(path, seg);
     angle = end;
   }
-  return svg;
+  return wrap;
 }
 
 function populateStatsYears(select) {
@@ -1338,9 +1543,17 @@ async function initCloud() {
   if (session) {
     state.userId = session.user.id;
     state.userEmail = session.user.email;
+    state.userName = deriveUserName(session.user);
+    applyBrand();
     updateAccountUI();
     refreshSaveIndicator();
     await reconcileWithCloud();
+    // First load may have rendered with an empty / stale IDB cache.
+    // Rebuild from the just-merged state so cloud data is visible without
+    // a second refresh — covers fresh sign-ins, cleared caches, and rows
+    // pulled in for dates that didn't exist locally.
+    renderYears();
+    scrollToIso(todayISO());
     flushPending();
     startBackgroundRefresh();
   } else {
@@ -1351,14 +1564,20 @@ async function initCloud() {
     if (s) {
       state.userId = s.user.id;
       state.userEmail = s.user.email;
+      state.userName = deriveUserName(s.user);
+      applyBrand();
       updateAccountUI();
       refreshSaveIndicator();
       await reconcileWithCloud();
+      renderYears();
+      scrollToIso(todayISO());
       flushPending();
       startBackgroundRefresh();
     } else {
       state.userId = null;
       state.userEmail = null;
+      state.userName = null;
+      applyBrand();
       cloudState.lastSyncAt = null;
       cloudState.hasError = false;
       cloudState.maxUpdatedAt = null;
@@ -1366,6 +1585,9 @@ async function initCloud() {
       await persistPending();
       stopBackgroundRefresh();
       state.daysByIso = new Map();
+      const clearT = state.db.transaction(["days"], "readwrite");
+      clearT.objectStore("days").clear();
+      await txDone(clearT);
       renderYears();
       scrollToIso(todayISO());
       updateAccountUI();
@@ -1396,6 +1618,37 @@ async function initCloud() {
   });
   document.getElementById("btn-refresh")?.addEventListener("click", async () => {
     await refreshFromCloud(false);
+  });
+  document.getElementById("btn-clear-cache")?.addEventListener("click", async () => {
+    if (!confirm("Wipe the local copy of your days and re-pull from the cloud? Unsaved edits in this tab will be lost.")) return;
+    setSyncIndicator("clearing…");
+    try {
+      // Wipe the days store and the pending-push queue. Categories and meta
+      // (palette config) stay — they're tiny and reloaded from seed.json
+      // on the next boot anyway.
+      const t = state.db.transaction(["days"], "readwrite");
+      t.objectStore("days").clear();
+      await txDone(t);
+      state.daysByIso = new Map();
+      cloudPending.clear();
+      await persistPending();
+      cloudState.lastSyncAt = null;
+      cloudState.maxUpdatedAt = null;
+      cloudState.hasError = false;
+      if (state.userId && !demoActive) {
+        await reconcileWithCloud();
+        renderYears();
+        scrollToIso(todayISO());
+        setSyncIndicator("cache cleared · re-pulled from cloud");
+      } else {
+        renderYears();
+        setSyncIndicator("cache cleared");
+      }
+      setTimeout(() => setSyncIndicator(""), 2500);
+    } catch (e) {
+      console.error("clear cache failed", e);
+      setSyncIndicator("clear failed");
+    }
   });
 }
 
@@ -1515,6 +1768,8 @@ async function boot() {
   wireSync();
   wireStats();
   wireDemoToggle();
+  document.getElementById("palette-edit-btn")?.addEventListener("click", togglePaletteEdit);
+  document.getElementById("palette-reset-btn")?.addEventListener("click", resetPaletteColors);
   if (localStorage.getItem(DEMO_LS_KEY) === "1") {
     setDemoMode(true, { persist: false });
   }

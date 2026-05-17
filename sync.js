@@ -2,7 +2,9 @@
 // Local IndexedDB stays the always-on cache; Supabase is the cross-device source.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+// Propagate the cache-buster from app.js so config.js refreshes too.
+const BUST = new URL(import.meta.url).search;
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import(`./config.js${BUST}`);
 
 export const cloudConfigured =
   SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== "PASTE_ANON_KEY_HERE";

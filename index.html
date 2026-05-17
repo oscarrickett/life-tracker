@@ -22,7 +22,9 @@
         <span class="version" id="app-version" title="App version"></span>
       </h1>
       <div class="datebar">
+        <button class="btn year-step" id="btn-year-earlier" title="Add earlier year" aria-label="Add earlier year">‹</button>
         <select id="year-select" class="year-select" title="Year"></select>
+        <button class="btn year-step" id="btn-year-later" title="Add later year" aria-label="Add later year">›</button>
         <button class="btn" id="btn-today">Today</button>
       </div>
       <div class="actions">
@@ -59,6 +61,10 @@
     <aside class="palette" id="palette">
       <header>
         <span>Categories</span>
+        <span class="palette-header-actions">
+          <button type="button" class="palette-edit-btn palette-reset-btn" id="palette-reset-btn" title="Reset all colors to defaults">Reset</button>
+          <button type="button" class="palette-edit-btn" id="palette-edit-btn" title="Toggle edit mode — rename categories and change colors">Edit</button>
+        </span>
       </header>
       <ul id="palette-list"></ul>
     </aside>
@@ -83,6 +89,7 @@
             <p class="muted">Changes sync automatically. The app also pulls updates from other devices every minute and when you focus this tab. <span id="sync-state" class="muted"></span></p>
             <div class="row">
               <button type="button" id="btn-refresh">Refresh now</button>
+              <button type="button" id="btn-clear-cache" title="Wipe the local IndexedDB copy and re-pull everything from the cloud">Clear local cache</button>
               <button type="button" id="btn-signout">Sign out</button>
             </div>
           </div>
@@ -105,6 +112,7 @@
 
     <dialog id="stats-dialog">
       <form method="dialog" class="stats">
+        <button type="submit" value="close" class="dialog-close-fab" aria-label="Close stats">&times;</button>
         <h2>Stats</h2>
         <div class="stats-controls">
           <label>Period:
@@ -116,6 +124,12 @@
       </form>
     </dialog>
 
-    <script type="module" src="app.js"></script>
+    <script type="module">
+      // Cache-bust on every page load so a refresh always fetches the
+      // latest deployed JS, not whatever GitHub Pages cached for the last
+      // 10 minutes. The buster is propagated to sub-imports via
+      // import.meta.url inside app.js / sync.js.
+      import(`./app.js?v=${Date.now()}`);
+    </script>
   </body>
 </html>
