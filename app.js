@@ -1,11 +1,11 @@
 /* Life Tracker — stacked rows view.
    Each day is a row, 24 columns are hours, years are grouped.
-   Storage: IndexedDB (seeded once from data/seed.json), with optional
-   Supabase cloud sync (see sync.js) for cross-device. */
+   Storage: in-memory only this session, hydrated from data/seed.json and
+   Supabase (see sync.js) on every page load. No local data cache. */
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.1";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -97,33 +97,89 @@ function textOn(hex) {
   return L > 0.45 ? "#111" : "#fff";
 }
 
-// ---------- IndexedDB ----------
+// ---------- in-memory store ----------
+// No local cache: days/categories/meta live only for the lifetime of the
+// page and rehydrate from seed.json + Supabase on every load. We keep the
+// IDB-shaped surface (transaction → objectStore → put/clear) so the rest
+// of the app doesn't have to change, and so the "wipe and re-pull" button
+// keeps working as an in-session reset.
 const DB_NAME = "life-tracker";
-const DB_VERSION = 1;
 
 function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains("days"))
-        db.createObjectStore("days", { keyPath: "date" });
-      if (!db.objectStoreNames.contains("categories"))
-        db.createObjectStore("categories", { keyPath: "id" });
-      if (!db.objectStoreNames.contains("meta"))
-        db.createObjectStore("meta", { keyPath: "k" });
+  const stores = { days: new Map(), categories: new Map(), meta: new Map() };
+  const keyOf = (name, item) =>
+    name === "days" ? item.date : name === "categories" ? item.id : item.k;
+  const valOf = (name, item) => (name === "meta" ? item.v : item);
+  const makeStore = (name) => {
+    const m = stores[name];
+    return {
+      put(item) { m.set(keyOf(name, item), valOf(name, item)); },
+      clear() { m.clear(); },
+      delete(key) { m.delete(key); },
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+  };
+  return Promise.resolve({
+    _stores: stores,
+    transaction() { return { objectStore: makeStore }; },
   });
 }
 
-const reqP = (req) => new Promise((res, rej) => {
-  req.onsuccess = () => res(req.result);
-  req.onerror = () => rej(req.error);
-});
+function txDone() { return Promise.resolve(); }
 
-function txDone(t) {
+async function bulkPut(db, store, items) {
+  const m = db._stores[store];
+  for (const it of items) {
+    if (store === "days") m.set(it.date, it);
+    else if (store === "categories") m.set(it.id, it);
+    else m.set(it.k, it.v);
+  }
+}
+
+async function getMeta(db, k) { return db._stores.meta.get(k); }
+async function setMeta(db, k, v) { db._stores.meta.set(k, v); }
+async function getAllCategories(db) {
+  return Array.from(db._stores.categories.values());
+}
+async function getAllDays(db) {
+  return Array.from(db._stores.days.values());
+}
+async function putDay(db, day) { db._stores.days.set(day.date, day); }
+
+// One-time cleanup: drop the persistent IndexedDB from older versions of
+// the app so returning visitors don't keep a stale local copy on disk.
+// (The pending-push queue below uses a *different* database name, so
+// running this on every boot doesn't touch the queue.)
+function deleteLegacyIDB() {
+  try {
+    if (typeof indexedDB === "undefined" || !indexedDB.deleteDatabase) return;
+    indexedDB.deleteDatabase(DB_NAME);
+  } catch (e) {
+    console.warn("legacy IDB cleanup failed", e);
+  }
+}
+
+// ---------- pending-push queue (IDB) ----------
+// Write-ahead log for edits we owe the cloud. NOT a read cache: rendering
+// always pulls from Supabase. The queue exists only so a timed-out push
+// followed by a tab close doesn't lose data — on next boot we replay it.
+const QUEUE_DB = "life-tracker-pending";
+const QUEUE_STORE = "pending";
+
+function openQueue() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { resolve(null); return; }
+    const req = indexedDB.open(QUEUE_DB, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(QUEUE_STORE))
+        db.createObjectStore(QUEUE_STORE, { keyPath: "date" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => { console.warn("queue open failed", req.error); resolve(null); };
+  });
+}
+
+function queueTxDone(t) {
   return new Promise((res, rej) => {
     t.oncomplete = res;
     t.onerror = () => rej(t.error);
@@ -131,41 +187,55 @@ function txDone(t) {
   });
 }
 
-async function bulkPut(db, store, items) {
-  const t = db.transaction([store], "readwrite");
-  const os = t.objectStore(store);
-  for (const it of items) os.put(it);
-  await txDone(t);
+async function queueWrite(day) {
+  if (!state.queue || !day) return;
+  try {
+    const t = state.queue.transaction([QUEUE_STORE], "readwrite");
+    t.objectStore(QUEUE_STORE).put({
+      date: day.date,
+      hours: day.hours,
+      notes: day.notes,
+      updated_at: day.updated_at,
+    });
+    await queueTxDone(t);
+  } catch (e) { console.warn("queue write", e); }
 }
 
-async function getMeta(db, k) {
-  const t = db.transaction(["meta"]);
-  const r = await reqP(t.objectStore("meta").get(k));
-  return r?.v;
+async function queueDelete(date) {
+  if (!state.queue) return;
+  try {
+    const t = state.queue.transaction([QUEUE_STORE], "readwrite");
+    t.objectStore(QUEUE_STORE).delete(date);
+    await queueTxDone(t);
+  } catch (e) { console.warn("queue delete", e); }
 }
-async function setMeta(db, k, v) {
-  const t = db.transaction(["meta"], "readwrite");
-  t.objectStore("meta").put({ k, v });
-  await txDone(t);
+
+async function queueClear() {
+  if (!state.queue) return;
+  try {
+    const t = state.queue.transaction([QUEUE_STORE], "readwrite");
+    t.objectStore(QUEUE_STORE).clear();
+    await queueTxDone(t);
+  } catch (e) { console.warn("queue clear", e); }
 }
-async function getAllCategories(db) {
-  const t = db.transaction(["categories"]);
-  return await reqP(t.objectStore("categories").getAll());
-}
-async function getAllDays(db) {
-  const t = db.transaction(["days"]);
-  return await reqP(t.objectStore("days").getAll());
-}
-async function putDay(db, day) {
-  const t = db.transaction(["days"], "readwrite");
-  t.objectStore("days").put(day);
-  await txDone(t);
+
+async function queueAll() {
+  if (!state.queue) return [];
+  try {
+    const t = state.queue.transaction([QUEUE_STORE]);
+    return await new Promise((res, rej) => {
+      const req = t.objectStore(QUEUE_STORE).getAll();
+      req.onsuccess = () => res(req.result || []);
+      req.onerror = () => rej(req.error);
+    });
+  } catch (e) { console.warn("queue read", e); return []; }
 }
 
 // ---------- seed ----------
-// Loads category names + per-year overrides from seed.json. Day data is
-// NOT seeded into IndexedDB — historical hours live per-user in Supabase.
-// Visitors who aren't signed in see an empty grid with the palette ready.
+// Loads category names + per-year overrides from seed.json into the
+// in-memory store. Day data is never seeded — historical hours live
+// per-user in Supabase. Visitors who aren't signed in see an empty grid
+// with the palette ready.
 async function maybeSeed(db) {
   let seed;
   try {
@@ -191,7 +261,7 @@ async function maybeSeed(db) {
 // Click the "Oscar" word in the header to swap in synthetic data for
 // showing the app to people without exposing real life. Demo edits are
 // in-memory only — scheduleSave / cloud sync are gated by demoActive so
-// nothing leaks into IndexedDB or Supabase.
+// nothing leaks into Supabase.
 const DEMO_LS_KEY = "lt.demoMode";
 let demoActive = false;
 let realDaysSnapshot = null;
@@ -333,6 +403,7 @@ function isWeekend(iso) {
 // ---------- state ----------
 const state = {
   db: null,
+  queue: null,             // IDB handle for the pending-push queue (see below)
   categories: [],          // [{id, name, color}]
   catById: new Map(),      // id -> {id, name, color}
   namesByYear: {},         // {"2023": {"5": "Clare", ...}, ...}
@@ -768,7 +839,7 @@ async function reconcileCategoriesWithCloud() {
   if (changed) {
     state.categories.sort((a, b) => a.id - b.id);
     try { await bulkPut(state.db, "categories", state.categories); }
-    catch (e) { console.warn("save categories to IDB", e); }
+    catch (e) { console.warn("save categories to store", e); }
     renderPalette();
     // Cell colors and tooltips depend on category data, so repaint everywhere.
     for (const iso of state.daysByIso.keys()) styleRowRuns(iso);
@@ -813,9 +884,10 @@ const cloudState = {
 };
 
 // ISOs whose latest local edit hasn't been confirmed by the cloud yet.
-// Persisted to IndexedDB ("pending_push") so a tab closed mid-upload still
-// retries on next boot. The indicator reads .size as "needs uploading"
-// regardless of whether a push is currently in flight.
+// Mirrored into the IDB queue (queueWrite / queueDelete) so a timed-out
+// push survives a tab close — on next boot the queue is replayed before
+// reconcile. The indicator reads .size as "needs uploading" regardless
+// of whether a push is currently in flight.
 const cloudPending = new Set();
 let flushInflight = false;
 // Epoch ms until which the indicator should flash "saved ✓". Set when a
@@ -828,13 +900,14 @@ function flashSaved(ms = 1800) {
   savedFlashTimer = setTimeout(refreshSaveIndicator, ms + 50);
   refreshSaveIndicator();
 }
-async function persistPending() {
-  if (!state.db) return;
-  try { await setMeta(state.db, "pending_push", [...cloudPending]); }
-  catch (e) { console.warn("persist pending_push", e); }
+async function markPending(iso) {
+  cloudPending.add(iso);
+  await queueWrite(state.daysByIso.get(iso));
 }
-async function markPending(iso) { cloudPending.add(iso); await persistPending(); }
-async function markSynced(iso) { cloudPending.delete(iso); await persistPending(); }
+async function markSynced(iso) {
+  cloudPending.delete(iso);
+  await queueDelete(iso);
+}
 
 function fmtClock(d) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -998,9 +1071,9 @@ async function flushPending() {
 
 function applyHour(iso, h, catId) {
   if (h < 0 || h > 23) return;
-  // Editing requires sign-in (or demo mode). Without a session, edits would
-  // write to IndexedDB but never reload, since reload() now gates IDB load
-  // on session — so the change would silently vanish on refresh.
+  // Editing requires sign-in (or demo mode). Without a session there is
+  // nowhere to persist the change, so the edit would silently vanish on
+  // refresh — block it outright instead.
   if (!state.userId && !demoActive) return;
   const d = getOrInitDay(iso);
   if (d.hours[h] === catId) return;
@@ -1634,10 +1707,9 @@ async function initCloud() {
     refreshSaveIndicator();
     await reconcileCategoriesWithCloud();
     await reconcileWithCloud();
-    // First load may have rendered with an empty / stale IDB cache.
-    // Rebuild from the just-merged state so cloud data is visible without
-    // a second refresh — covers fresh sign-ins, cleared caches, and rows
-    // pulled in for dates that didn't exist locally.
+    // First load rendered before the cloud pull completed. Rebuild from
+    // the just-merged state so days are visible without a second refresh
+    // — covers fresh sign-ins and rows we didn't have in memory yet.
     renderYears();
     scrollToIso(todayISO());
     flushPending();
@@ -1654,6 +1726,9 @@ async function initCloud() {
       applyBrand();
       updateAccountUI();
       refreshSaveIndicator();
+      // reload() picks up the pending-push queue — without it, a queue
+      // written before sign-in would stay stranded in IDB.
+      await reload();
       await reconcileCategoriesWithCloud();
       await reconcileWithCloud();
       renderYears();
@@ -1669,7 +1744,7 @@ async function initCloud() {
       cloudState.hasError = false;
       cloudState.maxUpdatedAt = null;
       cloudPending.clear();
-      await persistPending();
+      await queueClear();
       stopBackgroundRefresh();
       state.daysByIso = new Map();
       const clearT = state.db.transaction(["days"], "readwrite");
@@ -1707,25 +1782,24 @@ async function initCloud() {
     await refreshFromCloud(false);
   });
   document.getElementById("btn-clear-cache")?.addEventListener("click", async () => {
-    if (!confirm("Wipe the local copy of your days and re-pull from the cloud? Unsaved edits in this tab will be lost.")) return;
-    setSyncIndicator("clearing…");
+    if (!confirm("Drop the in-memory state and re-pull everything from the cloud? Unsaved edits in this tab will be lost.")) return;
+    setSyncIndicator("reloading…");
     try {
-      // Wipe days + categories stores and the pending-push queue, then
-      // re-seed categories from seed.json and re-pull everything from
-      // Supabase. Meta (per-year overrides) stays — it's reloaded by
-      // maybeSeed anyway.
+      // Drop the in-memory days + categories and the pending-push queue,
+      // then re-seed categories from seed.json and re-pull everything
+      // from Supabase. Meta (per-year overrides) is reloaded by maybeSeed.
       const t = state.db.transaction(["days", "categories"], "readwrite");
       t.objectStore("days").clear();
       t.objectStore("categories").clear();
       await txDone(t);
       state.daysByIso = new Map();
       cloudPending.clear();
-      await persistPending();
+      await queueClear();
       cloudState.lastSyncAt = null;
       cloudState.maxUpdatedAt = null;
       cloudState.hasError = false;
-      // Reseed the local category defaults so the palette isn't empty
-      // before the cloud reconcile completes.
+      // Reseed category defaults so the palette isn't empty before the
+      // cloud reconcile completes.
       await maybeSeed(state.db);
       await reload();
       if (state.userId && !demoActive) {
@@ -1733,39 +1807,49 @@ async function initCloud() {
         await reconcileWithCloud();
         renderYears();
         scrollToIso(todayISO());
-        setSyncIndicator("cache cleared · re-pulled from cloud");
+        setSyncIndicator("re-pulled from cloud");
       } else {
         renderYears();
-        setSyncIndicator("cache cleared");
+        setSyncIndicator("reloaded");
       }
       setTimeout(() => setSyncIndicator(""), 2500);
     } catch (e) {
-      console.error("clear cache failed", e);
-      setSyncIndicator("clear failed");
+      console.error("re-pull failed", e);
+      setSyncIndicator("reload failed");
     }
   });
 }
 
 // ---------- boot ----------
-// Days are only loaded from IndexedDB when the user has a Supabase
-// session — without auth the grid stays blank, so the local cache
-// from a previous signed-in session doesn't leak into a signed-out view.
+// Days are only surfaced when the user has a Supabase session — without
+// auth the grid stays blank. The only thing that survives across reloads
+// is the pending-push queue (unconfirmed edits, replayed below); cloud
+// reconcile fills in the rest.
 async function reload() {
   const cats = await getAllCategories(state.db);
   cats.sort((a, b) => a.id - b.id);
   state.categories = cats;
   state.catById = new Map(cats.map((c) => [c.id, c]));
   state.namesByYear = (await getMeta(state.db, "categoriesByYear")) || {};
+  state.daysByIso = new Map();
+  cloudPending.clear();
   const session = cloudConfigured ? await getSession() : null;
   if (session) {
-    const days = await getAllDays(state.db);
-    state.daysByIso = new Map(days.map((d) => [d.date, d]));
-    cloudPending.clear();
-    const persisted = await getMeta(state.db, "pending_push");
-    if (Array.isArray(persisted)) persisted.forEach((iso) => cloudPending.add(iso));
-  } else {
-    state.daysByIso = new Map();
-    cloudPending.clear();
+    // Replay any unconfirmed edits from a previous session so the user
+    // sees them immediately. reconcileWithCloud will push them when it
+    // runs (last-write-wins by updated_at), and flushPending retries
+    // anything still in the queue afterwards.
+    const queued = await queueAll();
+    for (const entry of queued) {
+      state.daysByIso.set(entry.date, {
+        date: entry.date,
+        day: dowShort(entry.date),
+        hours: entry.hours,
+        notes: entry.notes,
+        updated_at: entry.updated_at,
+      });
+      cloudPending.add(entry.date);
+    }
   }
   renderHourHeader();
   renderYears();
@@ -1843,7 +1927,9 @@ async function boot() {
   const vEl = document.getElementById("app-version");
   if (vEl) vEl.textContent = `v${APP_VERSION}`;
   renderLifeBar();
+  deleteLegacyIDB();
   state.db = await openDB();
+  state.queue = await openQueue();
   await maybeSeed(state.db);
   await reload();
   if (state.categories.length === 0) {

@@ -40,8 +40,9 @@ It handles the quirk where `2026.xlsx` still has 2025 dates in column A
 (the file was copied from last year's template — day-of-week is correct, so
 dates are reconstructed from row index for that file).
 
-To re-seed the browser database after a fresh import: open DevTools →
-Application → IndexedDB → `life-tracker` → delete it, then reload.
+To re-seed after a fresh import: reload the page — nothing is cached
+locally, so categories and days are pulled fresh from `data/seed.json`
+and Supabase on every load.
 
 ## Layout
 
@@ -86,5 +87,6 @@ git push -u origin main
 # enable Pages: Settings → Pages → Branch = main, Folder = /  (root)
 ```
 
-Note: each browser/device has its own IndexedDB, so until live sync is added
-you'll need Export/Import to move data between devices.
+Note: there is no local data cache — every load pulls from Supabase. Sign
+in on each device to see the same data; Export/Import is still available
+for manual JSON backups.

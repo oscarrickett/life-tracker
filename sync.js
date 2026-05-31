@@ -1,5 +1,6 @@
 // Cloud sync: Supabase auth + days table reconciliation.
-// Local IndexedDB stays the always-on cache; Supabase is the cross-device source.
+// Supabase is the sole source of truth — there is no local data cache;
+// the page rehydrates from cloud on every load.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 // Propagate the cache-buster from app.js so config.js refreshes too.
