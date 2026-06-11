@@ -1,6 +1,7 @@
 // Cloud sync: Supabase auth + days table reconciliation.
-// Supabase is the sole source of truth — there is no local data cache;
-// the page rehydrates from cloud on every load.
+// Supabase is the source of truth; app.js keeps a local IndexedDB read
+// cache so the grid paints instantly (and offline) and reconciles newer
+// cloud rows after load.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 // Propagate the cache-buster from app.js so config.js refreshes too.

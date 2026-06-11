@@ -89,15 +89,25 @@
             <p class="muted">Changes sync automatically. The app also pulls updates from other devices every minute and when you focus this tab. <span id="sync-state" class="muted"></span></p>
             <div class="row">
               <button type="button" id="btn-refresh">Refresh now</button>
-              <button type="button" id="btn-clear-cache" title="Drop the in-memory state and re-pull everything from the cloud">Re-pull from cloud</button>
+              <button type="button" id="btn-clear-cache" title="Drop the local cache and re-pull everything from the cloud">Re-pull from cloud</button>
               <button type="button" id="btn-signout">Sign out</button>
             </div>
           </div>
         </section>
 
         <details class="advanced">
+          <summary>Automatic backup</summary>
+          <p class="muted">Writes a dated JSON copy of everything to a folder you pick (e.g. Dropbox) once a day, so your data survives even if the cloud database is lost. Desktop Chrome/Edge only — choose "Allow on every visit" when asked so backups run silently.</p>
+          <div class="row">
+            <button type="button" id="btn-backup-folder">Choose backup folder…</button>
+            <button type="button" id="btn-backup-now">Back up now</button>
+          </div>
+          <p class="muted" id="backup-status"></p>
+        </details>
+
+        <details class="advanced">
           <summary>Manual backup</summary>
-          <p class="muted">Export everything to a JSON file you can re-import elsewhere. You don't need this if you're signed in.</p>
+          <p class="muted">Export everything to a JSON file you can re-import elsewhere.</p>
           <div class="row">
             <button type="button" id="btn-export">Export JSON</button>
             <button type="button" id="btn-import">Import JSON…</button>

@@ -1,11 +1,12 @@
 /* Life Tracker — stacked rows view.
    Each day is a row, 24 columns are hours, years are grouped.
-   Storage: in-memory only this session, hydrated from data/seed.json and
-   Supabase (see sync.js) on every page load. No local data cache. */
+   Storage: local IndexedDB cache so the grid paints instantly (and offline)
+   from the last known state; Supabase (see sync.js) is the source of truth
+   and reconcile overlays newer cloud rows after the cached paint. */
 
 // Bump on each user-visible release. Stamped into the topbar so a refresh
 // can be verified at a glance after a Pages rebuild.
-const APP_VERSION = "1.5.1";
+const APP_VERSION = "1.6.0";
 
 // "Four Thousand Weeks" (Burkeman) — a life is ~4000 weeks. Used to render
 // the slim progress bar under the topbar.
@@ -97,62 +98,132 @@ function textOn(hex) {
   return L > 0.45 ? "#111" : "#fff";
 }
 
-// ---------- in-memory store ----------
-// No local cache: days/categories/meta live only for the lifetime of the
-// page and rehydrate from seed.json + Supabase on every load. We keep the
-// IDB-shaped surface (transaction → objectStore → put/clear) so the rest
-// of the app doesn't have to change, and so the "wipe and re-pull" button
-// keeps working as an in-session reset.
-const DB_NAME = "life-tracker";
+// ---------- local cache (IndexedDB) ----------
+// Persistent read cache: days/categories/meta are mirrored in memory for
+// synchronous reads and written through to IndexedDB, so the grid paints
+// instantly (and offline) from the last known state on the next visit.
+// Supabase stays the source of truth — reconcile/refresh overlay newer
+// cloud rows after the cached paint.
+const LEGACY_DB_NAME = "life-tracker"; // pre-1.6 store, deleted on boot
+const DB_NAME = "life-tracker-cache";
+
+const keyOf = (store, item) =>
+  store === "days" ? item.date : store === "categories" ? item.id : item.k;
+const valOf = (store, item) => (store === "meta" ? item.v : item);
 
 function openDB() {
-  const stores = { days: new Map(), categories: new Map(), meta: new Map() };
-  const keyOf = (name, item) =>
-    name === "days" ? item.date : name === "categories" ? item.id : item.k;
-  const valOf = (name, item) => (name === "meta" ? item.v : item);
-  const makeStore = (name) => {
-    const m = stores[name];
-    return {
-      put(item) { m.set(keyOf(name, item), valOf(name, item)); },
-      clear() { m.clear(); },
-      delete(key) { m.delete(key); },
+  return new Promise((resolve) => {
+    const stores = { days: new Map(), categories: new Map(), meta: new Map() };
+    const makeDB = (idb) => ({
+      _stores: stores,
+      _idb: idb,
+      // IDB-shaped surface. Writes hit the in-memory mirror synchronously
+      // and the real IndexedDB best-effort — a cache write failure must
+      // never block an edit (the cloud push still runs regardless).
+      transaction(names, mode = "readonly") {
+        let real = null;
+        if (idb) {
+          try { real = idb.transaction(names, mode); }
+          catch (e) { console.warn("cache tx open", e); }
+        }
+        return {
+          _done: real
+            ? new Promise((res) => {
+                real.oncomplete = res;
+                real.onabort = res;
+                real.onerror = () => { console.warn("cache tx", real.error); res(); };
+              })
+            : Promise.resolve(),
+          objectStore(name) {
+            const m = stores[name];
+            const ros = real ? real.objectStore(name) : null;
+            const tryIdb = (fn) => {
+              if (!ros) return;
+              try { fn(ros); } catch (e) { console.warn("cache write", e); }
+            };
+            return {
+              put(item) { m.set(keyOf(name, item), valOf(name, item)); tryIdb((s) => s.put(item)); },
+              delete(key) { m.delete(key); tryIdb((s) => s.delete(key)); },
+              clear() { m.clear(); tryIdb((s) => s.clear()); },
+            };
+          },
+        };
+      },
+    });
+    if (typeof indexedDB === "undefined") { resolve(makeDB(null)); return; }
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("days")) db.createObjectStore("days", { keyPath: "date" });
+      if (!db.objectStoreNames.contains("categories")) db.createObjectStore("categories", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "k" });
     };
-  };
-  return Promise.resolve({
-    _stores: stores,
-    transaction() { return { objectStore: makeStore }; },
+    req.onerror = () => {
+      console.warn("cache open failed — running memory-only", req.error);
+      resolve(makeDB(null));
+    };
+    req.onsuccess = () => {
+      const idb = req.result;
+      // Hydrate the in-memory mirror so all reads stay synchronous.
+      try {
+        const t = idb.transaction(["days", "categories", "meta"]);
+        const read = (name) =>
+          new Promise((res, rej) => {
+            const r = t.objectStore(name).getAll();
+            r.onsuccess = () => res(r.result || []);
+            r.onerror = () => rej(r.error);
+          });
+        Promise.all([read("days"), read("categories"), read("meta")])
+          .then(([days, cats, metas]) => {
+            for (const d of days) stores.days.set(d.date, d);
+            for (const c of cats) stores.categories.set(c.id, c);
+            for (const m of metas) stores.meta.set(m.k, m.v);
+            resolve(makeDB(idb));
+          })
+          .catch((e) => { console.warn("cache hydrate failed", e); resolve(makeDB(idb)); });
+      } catch (e) {
+        console.warn("cache hydrate failed", e);
+        resolve(makeDB(idb));
+      }
+    };
   });
 }
 
-function txDone() { return Promise.resolve(); }
+function txDone(t) { return (t && t._done) || Promise.resolve(); }
 
 async function bulkPut(db, store, items) {
-  const m = db._stores[store];
-  for (const it of items) {
-    if (store === "days") m.set(it.date, it);
-    else if (store === "categories") m.set(it.id, it);
-    else m.set(it.k, it.v);
-  }
+  const t = db.transaction([store], "readwrite");
+  const os = t.objectStore(store);
+  for (const it of items) os.put(it);
+  await txDone(t);
 }
 
 async function getMeta(db, k) { return db._stores.meta.get(k); }
-async function setMeta(db, k, v) { db._stores.meta.set(k, v); }
+async function setMeta(db, k, v) {
+  const t = db.transaction(["meta"], "readwrite");
+  t.objectStore("meta").put({ k, v });
+  await txDone(t);
+}
 async function getAllCategories(db) {
   return Array.from(db._stores.categories.values());
 }
 async function getAllDays(db) {
   return Array.from(db._stores.days.values());
 }
-async function putDay(db, day) { db._stores.days.set(day.date, day); }
+async function putDay(db, day) {
+  const t = db.transaction(["days"], "readwrite");
+  t.objectStore("days").put(day);
+  await txDone(t);
+}
 
-// One-time cleanup: drop the persistent IndexedDB from older versions of
-// the app so returning visitors don't keep a stale local copy on disk.
-// (The pending-push queue below uses a *different* database name, so
-// running this on every boot doesn't touch the queue.)
+// One-time cleanup: drop the IndexedDB from versions before 1.6 — it has a
+// different schema than the current cache DB. (The pending-push queue uses
+// a *different* database name, so running this on every boot doesn't touch
+// the queue, and DB_NAME above is new so the cache survives too.)
 function deleteLegacyIDB() {
   try {
     if (typeof indexedDB === "undefined" || !indexedDB.deleteDatabase) return;
-    indexedDB.deleteDatabase(DB_NAME);
+    indexedDB.deleteDatabase(LEGACY_DB_NAME);
   } catch (e) {
     console.warn("legacy IDB cleanup failed", e);
   }
@@ -196,6 +267,7 @@ async function queueWrite(day) {
       hours: day.hours,
       notes: day.notes,
       updated_at: day.updated_at,
+      uid: state.userId, // so another user's sign-in never replays these
     });
     await queueTxDone(t);
   } catch (e) { console.warn("queue write", e); }
@@ -237,6 +309,12 @@ async function queueAll() {
 // per-user in Supabase. Visitors who aren't signed in see an empty grid
 // with the palette ready.
 async function maybeSeed(db) {
+  // A populated cache means a previous visit already merged cloud
+  // categories (possibly with custom names/colors) — don't stomp them
+  // with seed defaults on every boot.
+  const haveCats = db._stores.categories.size > 0;
+  const haveMeta = db._stores.meta.has("categoriesByYear");
+  if (haveCats && haveMeta) return false;
   let seed;
   try {
     const res = await fetch("data/seed.json", { cache: "no-store" });
@@ -246,14 +324,18 @@ async function maybeSeed(db) {
     console.warn("seed fetch failed:", e);
     return false;
   }
-  const cats = Object.entries(seed.categories || {}).map(([id, name]) => ({
-    id: Number(id),
-    name,
-    color: colorFor(Number(id)),
-  }));
-  if (cats.length) await bulkPut(db, "categories", cats);
-  await setMeta(db, "categoriesByYear", seed.categoriesByYear || {});
-  await setMeta(db, "colorsByYear", seed.colorsByYear || {});
+  if (!haveCats) {
+    const cats = Object.entries(seed.categories || {}).map(([id, name]) => ({
+      id: Number(id),
+      name,
+      color: colorFor(Number(id)),
+    }));
+    if (cats.length) await bulkPut(db, "categories", cats);
+  }
+  if (!haveMeta) {
+    await setMeta(db, "categoriesByYear", seed.categoriesByYear || {});
+    await setMeta(db, "colorsByYear", seed.colorsByYear || {});
+  }
   return false;
 }
 
@@ -1184,24 +1266,143 @@ function extendYearRange(direction) {
   activateYear(target);
 }
 
+async function exportPayload() {
+  return {
+    exportedAt: new Date().toISOString(),
+    categories: await getAllCategories(state.db),
+    days: await getAllDays(state.db),
+  };
+}
+
+// ---------- automatic backup (File System Access) ----------
+// Once per day, writes a dated JSON export (same shape as the manual
+// Export button) into a user-chosen folder — point it at Dropbox and
+// there's always an offline copy independent of Supabase. The folder
+// handle persists in the meta store; Chrome can remember the permission
+// ("Allow on every visit"), after which backups run silently.
+const BACKUP_DIR_KEY = "backupDir";      // FileSystemDirectoryHandle
+const BACKUP_LAST_KEY = "lastBackupDay"; // "YYYY-MM-DD" of last successful write
+const BACKUP_KEEP = 60;                  // dated files retained before pruning
+
+const backupSupported = () => "showDirectoryPicker" in window;
+let backupRetryArmed = false;
+
+function setBackupStatus(text) {
+  const s = document.getElementById("backup-status");
+  if (s) s.textContent = text || "";
+}
+
+async function updateBackupStatus() {
+  if (!backupSupported()) {
+    setBackupStatus("Not supported in this browser — use Chrome or Edge on desktop.");
+    return;
+  }
+  const dir = await getMeta(state.db, BACKUP_DIR_KEY);
+  if (!dir) { setBackupStatus("No folder chosen yet."); return; }
+  const last = await getMeta(state.db, BACKUP_LAST_KEY);
+  let perm = "denied";
+  try { perm = await dir.queryPermission({ mode: "readwrite" }); } catch (e) { /* gone */ }
+  const lastTxt = last ? `Last backup: ${last}.` : "No backup written yet.";
+  setBackupStatus(
+    perm === "granted"
+      ? `Backing up daily to “${dir.name}”. ${lastTxt}`
+      : `Folder “${dir.name}” needs permission — click “Back up now” to re-grant. ${lastTxt}`
+  );
+}
+
+// interactive=true only from a click handler — requestPermission needs a
+// user gesture. Non-interactive calls that hit a "prompt" permission arm a
+// one-time retry on the next click anywhere, so the daily backup still
+// happens with at most one permission prompt.
+async function runAutoBackup({ force = false, interactive = false } = {}) {
+  if (!backupSupported() || demoActive || !state.userId) return;
+  const dir = await getMeta(state.db, BACKUP_DIR_KEY);
+  if (!dir) return;
+  const today = todayISO();
+  if (!force && (await getMeta(state.db, BACKUP_LAST_KEY)) === today) return;
+  let perm = "denied";
+  try {
+    perm = await dir.queryPermission({ mode: "readwrite" });
+    if (perm === "prompt" && interactive) perm = await dir.requestPermission({ mode: "readwrite" });
+  } catch (e) { console.warn("backup permission", e); }
+  if (perm !== "granted") {
+    if (perm === "prompt" && !backupRetryArmed) {
+      backupRetryArmed = true;
+      window.addEventListener("pointerdown", () => {
+        backupRetryArmed = false;
+        runAutoBackup({ interactive: true });
+      }, { once: true });
+    }
+    updateBackupStatus();
+    return;
+  }
+  try {
+    const payload = await exportPayload();
+    // Never write a file that records an empty grid — a failed cloud pull
+    // must not produce a "backup" with no days in it.
+    const tracked = payload.days.some((d) =>
+      (Array.isArray(d.hours) && d.hours.some((h) => h != null)) || d.notes);
+    if (!tracked) { console.warn("backup skipped — no tracked days in memory"); return; }
+    const fh = await dir.getFileHandle(`life-tracker-${today}.json`, { create: true });
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(payload, null, 2));
+    await w.close();
+    await setMeta(state.db, BACKUP_LAST_KEY, today);
+    await pruneBackups(dir);
+    updateBackupStatus();
+  } catch (e) {
+    console.warn("backup failed", e);
+    setBackupStatus(`Backup failed: ${e.message || e}`);
+  }
+}
+
+async function pruneBackups(dir) {
+  try {
+    const names = [];
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind === "file" && /^life-tracker-\d{4}-\d{2}-\d{2}\.json$/.test(name)) {
+        names.push(name);
+      }
+    }
+    names.sort(); // ISO-dated names sort chronologically
+    for (const name of names.slice(0, Math.max(0, names.length - BACKUP_KEEP))) {
+      await dir.removeEntry(name);
+    }
+  } catch (e) { console.warn("backup prune", e); }
+}
+
 function wireSync() {
   const dlg = document.getElementById("sync-dialog");
-  document.getElementById("btn-sync").addEventListener("click", () => dlg.showModal());
+  document.getElementById("btn-sync").addEventListener("click", () => {
+    updateBackupStatus();
+    dlg.showModal();
+  });
 
   document.getElementById("btn-export").addEventListener("click", async () => {
-    const days = await getAllDays(state.db);
-    const cats = await getAllCategories(state.db);
-    const blob = new Blob([JSON.stringify({
-      exportedAt: new Date().toISOString(),
-      categories: cats,
-      days,
-    }, null, 2)], { type: "application/json" });
+    const payload = await exportPayload();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `life-tracker-${todayISO()}.json`;
     document.body.append(a); a.click(); a.remove();
-    document.getElementById("sync-status").textContent = `Exported ${days.length} days.`;
+    document.getElementById("sync-status").textContent = `Exported ${payload.days.length} days.`;
   });
+
+  document.getElementById("btn-backup-folder")?.addEventListener("click", async () => {
+    if (!backupSupported()) { updateBackupStatus(); return; }
+    try {
+      const dir = await window.showDirectoryPicker({ id: "lt-backup", mode: "readwrite" });
+      await setMeta(state.db, BACKUP_DIR_KEY, dir);
+      await runAutoBackup({ force: true, interactive: true });
+    } catch (e) {
+      if (e?.name !== "AbortError") {
+        console.warn(e);
+        setBackupStatus(`Couldn't set folder: ${e.message || e}`);
+      }
+    }
+  });
+  document.getElementById("btn-backup-now")?.addEventListener("click", () =>
+    runAutoBackup({ force: true, interactive: true }));
   document.getElementById("btn-import").addEventListener("click", () =>
     document.getElementById("file-import").click());
   document.getElementById("file-import").addEventListener("change", async (e) => {
@@ -1601,6 +1802,9 @@ async function reconcileWithCloud() {
     setSyncIndicator(`synced · ${remote.length + toPush.length} days`);
     setTimeout(() => setSyncIndicator(""), 2500);
     refreshSaveIndicator();
+    // Freshly merged with the cloud — best moment for the daily backup.
+    // Fire-and-forget; it self-gates to once per day.
+    runAutoBackup();
   } catch (e) {
     console.error("reconcile failed", e);
     cloudState.hasError = true;
@@ -1674,6 +1878,7 @@ function startBackgroundRefresh() {
     if (document.visibilityState === "visible" && state.userId) {
       refreshFromCloud(true);
       flushPending();
+      runAutoBackup(); // no-op until the date rolls over
     }
   }, 60_000);
 }
@@ -1689,6 +1894,12 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("focus", () => {
   if (state.userId) { refreshFromCloud(true); flushPending(); }
 });
+
+// Set by the Sign out button so onAuthChange can tell a user-initiated
+// sign-out (wipe this device's copy) from an involuntary one like a failed
+// token refresh after a long sleep (keep the cache AND the pending queue —
+// wiping those on an expired session is how unpushed edits used to vanish).
+let explicitSignOut = false;
 
 async function initCloud() {
   if (!cloudConfigured) {
@@ -1720,12 +1931,18 @@ async function initCloud() {
   }
   onAuthChange(async (s) => {
     if (s) {
+      // Supabase fires this on INITIAL_SESSION and every TOKEN_REFRESHED
+      // too, not just on a fresh sign-in. Rebuilding state for the same
+      // user would blank-and-refill the grid (and re-reconcile) for no
+      // reason — only run the heavy path when the user actually changed.
+      const sameUser = state.userId === s.user.id;
       state.userId = s.user.id;
       state.userEmail = s.user.email;
       state.userName = deriveUserName(s.user);
       applyBrand();
       updateAccountUI();
       refreshSaveIndicator();
+      if (sameUser) return;
       // reload() picks up the pending-push queue — without it, a queue
       // written before sign-in would stay stranded in IDB.
       await reload();
@@ -1736,6 +1953,8 @@ async function initCloud() {
       flushPending();
       startBackgroundRefresh();
     } else {
+      const explicit = explicitSignOut;
+      explicitSignOut = false;
       state.userId = null;
       state.userEmail = null;
       state.userName = null;
@@ -1743,15 +1962,21 @@ async function initCloud() {
       cloudState.lastSyncAt = null;
       cloudState.hasError = false;
       cloudState.maxUpdatedAt = null;
-      cloudPending.clear();
-      await queueClear();
       stopBackgroundRefresh();
-      state.daysByIso = new Map();
-      const clearT = state.db.transaction(["days"], "readwrite");
-      clearT.objectStore("days").clear();
-      await txDone(clearT);
-      renderYears();
-      scrollToIso(todayISO());
+      if (explicit) {
+        // The user asked to sign out: clear this device's copy.
+        cloudPending.clear();
+        await queueClear();
+        state.daysByIso = new Map();
+        const clearT = state.db.transaction(["days"], "readwrite");
+        clearT.objectStore("days").clear();
+        await txDone(clearT);
+        renderYears();
+        scrollToIso(todayISO());
+      }
+      // Involuntary sign-out (expired/failed token refresh): keep the
+      // cache and the pending-push queue. The sign-in overlay appears and
+      // everything — including unpushed edits — resumes on next sign-in.
       updateAccountUI();
       refreshSaveIndicator();
     }
@@ -1775,6 +2000,7 @@ async function initCloud() {
     setDemoMode(true);
   });
   document.getElementById("btn-signout")?.addEventListener("click", async () => {
+    explicitSignOut = true;
     try { await signOut(); } catch (e) { console.warn("signOut error", e); }
     document.getElementById("sync-dialog")?.close();
   });
@@ -1782,10 +2008,10 @@ async function initCloud() {
     await refreshFromCloud(false);
   });
   document.getElementById("btn-clear-cache")?.addEventListener("click", async () => {
-    if (!confirm("Drop the in-memory state and re-pull everything from the cloud? Unsaved edits in this tab will be lost.")) return;
+    if (!confirm("Drop the local cache and re-pull everything from the cloud? Unsaved edits in this tab will be lost.")) return;
     setSyncIndicator("reloading…");
     try {
-      // Drop the in-memory days + categories and the pending-push queue,
+      // Drop the cached days + categories and the pending-push queue,
       // then re-seed categories from seed.json and re-pull everything
       // from Supabase. Meta (per-year overrides) is reloaded by maybeSeed.
       const t = state.db.transaction(["days", "categories"], "readwrite");
@@ -1822,9 +2048,10 @@ async function initCloud() {
 
 // ---------- boot ----------
 // Days are only surfaced when the user has a Supabase session — without
-// auth the grid stays blank. The only thing that survives across reloads
-// is the pending-push queue (unconfirmed edits, replayed below); cloud
-// reconcile fills in the rest.
+// auth the grid stays blank. With a session, the local IndexedDB cache
+// paints the last known state immediately (even offline), the pending-push
+// queue (unconfirmed edits) is replayed on top, and cloud reconcile then
+// overlays anything newer.
 async function reload() {
   const cats = await getAllCategories(state.db);
   cats.sort((a, b) => a.id - b.id);
@@ -1835,12 +2062,17 @@ async function reload() {
   cloudPending.clear();
   const session = cloudConfigured ? await getSession() : null;
   if (session) {
+    for (const d of await getAllDays(state.db)) state.daysByIso.set(d.date, d);
     // Replay any unconfirmed edits from a previous session so the user
     // sees them immediately. reconcileWithCloud will push them when it
     // runs (last-write-wins by updated_at), and flushPending retries
     // anything still in the queue afterwards.
     const queued = await queueAll();
     for (const entry of queued) {
+      // Entries tagged with another user's id (someone else signed in on
+      // this browser) must not leak into this account. Untagged entries
+      // predate uid-tagging and are safe to replay.
+      if (entry.uid && entry.uid !== session.user.id) continue;
       state.daysByIso.set(entry.date, {
         date: entry.date,
         day: dowShort(entry.date),

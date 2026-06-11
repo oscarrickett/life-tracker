@@ -1,7 +1,9 @@
 # Life Tracker
 
 A static web app to replace the "Template of my Life YYYY.xlsx" workflow.
-Hour-by-hour daily tracking, fast entry, browser-only storage.
+Hour-by-hour daily tracking, fast entry. Supabase is the source of truth;
+a local IndexedDB cache paints the grid instantly (and offline) and is
+reconciled with the cloud after load.
 
 ## Layout
 
@@ -40,9 +42,9 @@ It handles the quirk where `2026.xlsx` still has 2025 dates in column A
 (the file was copied from last year's template — day-of-week is correct, so
 dates are reconstructed from row index for that file).
 
-To re-seed after a fresh import: reload the page — nothing is cached
-locally, so categories and days are pulled fresh from `data/seed.json`
-and Supabase on every load.
+To re-seed after a fresh import: Account dialog → "Re-pull from cloud" —
+this drops the local cache and pulls categories and days fresh from
+`data/seed.json` and Supabase.
 
 ## Layout
 
@@ -68,11 +70,21 @@ of each row. Empty future days are shown grey so you can scroll forward.
 Digit shortcuts use `e.code` (`Digit0`–`Digit9`), so they work the same on
 US and Swedish keyboard layouts.
 
-## Sync (placeholder)
+## Storage, sync & backups
 
-Top bar → **Sync** → Export / Import JSON. This is a manual file-based
-backup/restore. Future option: GitHub-as-DB or Supabase for live
-cross-device sync.
+Three layers:
+
+1. **Supabase** — source of truth, synced live while signed in.
+2. **Local IndexedDB cache** (`life-tracker-cache`) — written through on
+   every edit and cloud pull; the grid renders from it instantly on load,
+   including offline. A separate `life-tracker-pending` DB is a
+   write-ahead queue of edits not yet confirmed by the cloud; it is only
+   cleared on an *explicit* sign-out, never on session expiry.
+3. **Automatic backup** — Account dialog → "Automatic backup" → pick a
+   folder (e.g. Dropbox). Once per day a dated
+   `life-tracker-YYYY-MM-DD.json` is written there (last 60 kept).
+   Desktop Chrome/Edge only; grant "Allow on every visit" so it runs
+   silently. Manual Export/Import JSON is still available next to it.
 
 ## Deploying to GitHub Pages
 
@@ -87,6 +99,5 @@ git push -u origin main
 # enable Pages: Settings → Pages → Branch = main, Folder = /  (root)
 ```
 
-Note: there is no local data cache — every load pulls from Supabase. Sign
-in on each device to see the same data; Export/Import is still available
-for manual JSON backups.
+Sign in on each device to see the same data; each device keeps its own
+local cache so the grid paints before the cloud responds.
