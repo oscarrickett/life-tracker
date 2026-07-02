@@ -59,12 +59,30 @@ export async function signOut() {
   await supabase.auth.signOut({ scope: "local" });
 }
 
+// PostgREST silently caps un-ranged selects at 1000 rows — with 3.5+ years
+// of days that truncated the startup pull to an arbitrary subset, so edits
+// from other devices never appeared until they happened to land in the
+// window. Keyset-paginate on date (unique per user, immutable), which stays
+// stable even if rows are updated mid-pull.
+const PULL_PAGE = 500;
 export async function pullDays(sinceIso) {
-  let q = supabase.from("days").select("date, hours, notes, updated_at");
-  if (sinceIso) q = q.gt("updated_at", sinceIso);
-  const { data, error } = await withTimeout(q, "pullDays");
-  if (error) throw error;
-  return data || [];
+  const out = [];
+  let cursor = null;
+  for (;;) {
+    let q = supabase
+      .from("days")
+      .select("date, hours, notes, updated_at")
+      .order("date", { ascending: true })
+      .limit(PULL_PAGE);
+    if (sinceIso) q = q.gt("updated_at", sinceIso);
+    if (cursor) q = q.gt("date", cursor);
+    const { data, error } = await withTimeout(q, "pullDays");
+    if (error) throw error;
+    const rows = data || [];
+    out.push(...rows);
+    if (rows.length < PULL_PAGE) return out;
+    cursor = rows[rows.length - 1].date;
+  }
 }
 
 function dayPayload(userId, day, nowIso) {
