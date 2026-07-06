@@ -49,7 +49,7 @@ const PALETTE = {
   2:  "#bf4eaf",  // Work — vivid mauve-purple
   3:  "#d97a1f",  // Hobby — vivid amber
   4:  "#6fa572",  // Sorting House — sage green
-  5:  "#2fa2a3",  // Party / Clare — teal
+  5:  "#2fa2a3",  // Party — teal
   6:  "#6fab37",  // Social — apple green
   7:  "#4d70d0",  // Exercise — steel blue
   8:  "#cc4125",  // Foxo — crimson red
@@ -488,7 +488,7 @@ const state = {
   queue: null,             // IDB handle for the pending-push queue (see below)
   categories: [],          // [{id, name, color}]
   catById: new Map(),      // id -> {id, name, color}
-  namesByYear: {},         // {"2023": {"5": "Clare", ...}, ...}
+  namesByYear: {},         // {"2023": {"5": "Relationship", ...}, ...}
   daysByIso: new Map(),    // iso -> day record
   rowEls: new Map(),       // iso -> rowEl
   cellEls: new Map(),      // `${iso}#${h}` -> cellEl
@@ -527,7 +527,7 @@ function applyBrand() {
   const name = demoActive ? "DEMO" : (state.userName || DEFAULT_BRAND);
   const word = document.querySelector(".brand .word");
   if (word) word.textContent = name;
-  document.title = `${name} — Life Tracker`;
+  document.title = `${name}, Life Tracker`;
 }
 
 function nameFor(catId, iso) {
@@ -1019,7 +1019,7 @@ function refreshSaveIndicator() {
   if (localPhase === "error") {
     el.classList.add("error");
     if (lbl) lbl.textContent = "save error";
-    el.title = "Save failed — your changes may not have been written.";
+    el.title = "Save failed. Your changes may not have been written.";
     return;
   }
   if (localPhase === "saving") {
@@ -1053,12 +1053,12 @@ function refreshSaveIndicator() {
       el.classList.add("ok-cloud");
       const d = new Date(cloudState.lastSyncAt);
       if (lbl) lbl.textContent = `synced ${fmtClock(d)}`;
-      el.title = `Last cloud sync: ${d.toLocaleString()}\nSafe to close — your data is in Supabase.`;
+      el.title = `Last cloud sync: ${d.toLocaleString()}\nSafe to close, your data is in Supabase.`;
       return;
     }
     el.classList.add("ok-cloud");
     if (lbl) lbl.textContent = "signed in";
-    el.title = "Cloud connected — no changes yet this session.";
+    el.title = "Cloud connected, no changes yet this session.";
     return;
   }
 }
@@ -1294,7 +1294,7 @@ function setBackupStatus(text) {
 
 async function updateBackupStatus() {
   if (!backupSupported()) {
-    setBackupStatus("Not supported in this browser — use Chrome or Edge on desktop.");
+    setBackupStatus("Not supported in this browser. Use Chrome or Edge on desktop.");
     return;
   }
   const dir = await getMeta(state.db, BACKUP_DIR_KEY);
@@ -1306,7 +1306,7 @@ async function updateBackupStatus() {
   setBackupStatus(
     perm === "granted"
       ? `Backing up daily to “${dir.name}”. ${lastTxt}`
-      : `Folder “${dir.name}” needs permission — click “Back up now” to re-grant. ${lastTxt}`
+      : `Folder “${dir.name}” needs permission, click “Back up now” to re-grant. ${lastTxt}`
   );
 }
 
@@ -1497,7 +1497,7 @@ function renderPie(segments, size = 220) {
   if (segments.length === 1) {
     const c = svgEl("circle", { cx, cy, r, fill: segments[0].color });
     const t = svgEl("title");
-    t.textContent = `${segments[0].label} — 100%`;
+    t.textContent = `${segments[0].label}: 100%`;
     c.appendChild(t);
     svg.appendChild(c);
     wireHover(c, segments[0]);
@@ -1520,7 +1520,7 @@ function renderPie(segments, size = 220) {
     });
     const t = svgEl("title");
     const pct = ((seg.value / total) * 100).toFixed(1);
-    t.textContent = `${seg.label} — ${seg.value.toLocaleString()} h (${pct}%)`;
+    t.textContent = `${seg.label}: ${seg.value.toLocaleString()} h (${pct}%)`;
     path.appendChild(t);
     svg.appendChild(path);
     wireHover(path, seg);
@@ -2137,9 +2137,9 @@ function renderLifeBar() {
     : ageYears < LIFE_PHASES.retirementStartAge ? "adult"
     : "retirement";
   wrap.title =
-    `Four Thousand Weeks — ${fmt(w)} lived, ${fmt(remaining)} remaining ` +
+    `Four Thousand Weeks: ${fmt(w)} lived, ${fmt(remaining)} remaining ` +
     `(${pct.toFixed(2)}%). Born ${DOB}. ` +
-    `Phases: childhood 0–${LIFE_PHASES.childhoodEndAge}, ` +
+    `Phases: childhood 0 to ${LIFE_PHASES.childhoodEndAge}, ` +
     `retirement ${LIFE_PHASES.retirementStartAge}+. ` +
     `Currently: ${phase}.`;
 

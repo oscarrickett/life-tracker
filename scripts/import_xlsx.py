@@ -7,7 +7,8 @@ Quirks handled:
   2025 dates (the user copied last year's file). Day-of-week is correct, so
   for the 2026 file we ignore col A and reconstruct the date from row index.
 - The category key block (right of the data) drifts across years
-  (e.g. 5 = 'Clare' in 2023/24 vs 'Party' in 2025). We capture per-year keys.
+  (e.g. category 5 changed meaning in 2025). We capture per-year keys.
+  RENAMES below relabels historical names we don't want in the output.
 
 Output:
     data/seed.json
@@ -53,6 +54,9 @@ NOTES_COL = 27       # 'AA'
 KEY_LEFT_ID, KEY_LEFT_NAME = 29, 30
 KEY_RIGHT_ID, KEY_RIGHT_NAME = 31, 32
 
+# Relabel historical category names on import (seed.json is public).
+RENAMES = {"Clare": "Relationship"}
+
 
 def read_category_key(ws) -> dict[int, str]:
     out: dict[int, str] = {}
@@ -61,7 +65,8 @@ def read_category_key(ws) -> dict[int, str]:
             cid = ws.cell(row=r, column=id_col).value
             name = ws.cell(row=r, column=name_col).value
             if isinstance(cid, (int, float)) and name:
-                out[int(cid)] = str(name).strip()
+                clean = str(name).strip()
+                out[int(cid)] = RENAMES.get(clean, clean)
     return out
 
 
