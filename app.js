@@ -1287,6 +1287,23 @@ const BACKUP_KEEP = 60;                  // dated files retained before pruning
 const backupSupported = () => "showDirectoryPicker" in window;
 let backupRetryArmed = false;
 
+// Backups go in a LifeTracker/Backups subfolder of the picked folder, so
+// pointing the picker at the Dropbox root doesn't litter it with dated
+// files. Subfolder handles inherit the stored permission, so this needs
+// no re-grant. Picking the subfolder itself directly also works.
+async function resolveBackupDir(dir) {
+  if (dir.name === "Backups") return dir;
+  const parent = dir.name === "LifeTracker"
+    ? dir
+    : await dir.getDirectoryHandle("LifeTracker", { create: true });
+  return parent.getDirectoryHandle("Backups", { create: true });
+}
+
+const backupDirLabel = (dir) =>
+  dir.name === "Backups" ? dir.name
+  : dir.name === "LifeTracker" ? "LifeTracker/Backups"
+  : `${dir.name}/LifeTracker/Backups`;
+
 function setBackupStatus(text) {
   const s = document.getElementById("backup-status");
   if (s) s.textContent = text || "";
@@ -1305,7 +1322,7 @@ async function updateBackupStatus() {
   const lastTxt = last ? `Last backup: ${last}.` : "No backup written yet.";
   setBackupStatus(
     perm === "granted"
-      ? `Backing up daily to “${dir.name}”. ${lastTxt}`
+      ? `Backing up daily to “${backupDirLabel(dir)}”. ${lastTxt}`
       : `Folder “${dir.name}” needs permission, click “Back up now” to re-grant. ${lastTxt}`
   );
 }
@@ -1343,12 +1360,13 @@ async function runAutoBackup({ force = false, interactive = false } = {}) {
     const tracked = payload.days.some((d) =>
       (Array.isArray(d.hours) && d.hours.some((h) => h != null)) || d.notes);
     if (!tracked) { console.warn("backup skipped — no tracked days in memory"); return; }
-    const fh = await dir.getFileHandle(`life-tracker-${today}.json`, { create: true });
+    const out = await resolveBackupDir(dir);
+    const fh = await out.getFileHandle(`life-tracker-${today}.json`, { create: true });
     const w = await fh.createWritable();
     await w.write(JSON.stringify(payload, null, 2));
     await w.close();
     await setMeta(state.db, BACKUP_LAST_KEY, today);
-    await pruneBackups(dir);
+    await pruneBackups(out);
     updateBackupStatus();
   } catch (e) {
     console.warn("backup failed", e);

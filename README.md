@@ -81,8 +81,9 @@ Three layers:
    write-ahead queue of edits not yet confirmed by the cloud; it is only
    cleared on an *explicit* sign-out, never on session expiry.
 3. **Automatic backup** — Account dialog → "Automatic backup" → pick a
-   folder (e.g. Dropbox). Once per day a dated
-   `life-tracker-YYYY-MM-DD.json` is written there (last 60 kept).
+   folder (e.g. the Dropbox root). Once per day a dated
+   `life-tracker-YYYY-MM-DD.json` is written to a `LifeTracker/Backups`
+   subfolder of it (created if missing, last 60 kept).
    Desktop Chrome/Edge only; grant "Allow on every visit" so it runs
    silently. Manual Export/Import JSON is still available next to it.
 
